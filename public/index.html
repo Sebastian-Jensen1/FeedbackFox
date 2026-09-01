@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Review Assistant — Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --border: #2a2e38;
+    --text: #e7e9ee;
+    --muted: #9aa1ae;
+    --accent: #6c8cff;
+    --accent-hover: #5779e6;
+    --danger: #ff6b6b;
+    --success: #4dd08a;
+    --new: #f5b301;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px 16px 80px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .setup {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+  .setup .field { flex: 1; min-width: 160px; }
+  .setup label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .setup input, .setup select {
+    width: 100%;
+    background: #10131a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 9px 10px;
+    font-size: 13px;
+  }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .stat-card .num { font-size: 26px; font-weight: 700; }
+  .stat-card .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .stat-card.new .num { color: var(--new); }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .toolbar button.chip {
+    background: #10131a; border: 1px solid var(--border); color: var(--text);
+    padding: 7px 12px; border-radius: 20px; font-size: 12px; cursor: pointer;
+  }
+  .toolbar button.chip:hover { border-color: var(--accent); }
+  .toolbar .spacer { flex: 1; }
+  .toolbar button.primary-action {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .toolbar button.primary-action:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toolbar button.primary-action:hover:not(:disabled) { background: var(--accent-hover); }
+  .review-row { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .review-row.is-new { border-left: 3px solid var(--new); }
+  .review-head { display: flex; align-items: flex-start; gap: 12px; }
+  .review-head input[type="checkbox"] { margin-top: 4px; width: 16px; height: 16px; }
+  .review-info { flex: 1; min-width: 0; }
+  .review-info .top-line { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 4px; flex-wrap: wrap; }
+  .review-info .name { font-weight: 600; }
+  .stars { color: #f5b301; font-size: 12px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted); }
+  .badge.new { color: var(--new); border-color: var(--new); }
+  .badge.ready { color: var(--accent); border-color: var(--accent); }
+  .badge.sent { color: var(--success); border-color: var(--success); }
+  .review-text { font-size: 13px; color: var(--muted); font-style: italic; }
+  .draft-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .draft-box textarea {
+    width: 100%; min-height: 80px; background: #10131a; border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); padding: 10px; font-size: 13px; font-family: inherit; resize: vertical;
+  }
+  .draft-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .draft-actions button { border: none; border-radius: 6px; padding: 7px 12px; font-size: 12px; cursor: pointer; }
+  .btn-send { background: var(--success); color: #0a1a12; font-weight: 600; }
+  .btn-send:disabled { background: var(--border); color: var(--muted); cursor: default; }
+  .btn-regen { background: transparent; border: 1px solid var(--border) !important; color: var(--muted); }
+  .send-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .add-review-form { background: var(--card); border: 1px dashed var(--border); border-radius: 12px; padding: 14px 16px; margin-top: 16px; }
+  .add-review-form .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .add-review-form input, .add-review-form select, .add-review-form textarea {
+    background: #10131a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .add-review-form .name-field { flex: 1; min-width: 140px; }
+  .add-review-form .rating-field { width: 80px; }
+  .add-review-form textarea { width: 100%; min-height: 50px; resize: vertical; }
+  .add-review-form button { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .error { color: var(--danger); font-size: 13px; margin: 10px 0; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📋 Review Assistant</h1>
+
+  <div class="setup">
+    <div class="field">
+      <label>Virksomhedsnavn</label>
+      <input id="businessName" value="Café Nordvest" />
+    </div>
+    <div class="field">
+      <label>Branche</label>
+      <input id="businessType" value="café" />
+    </div>
+    <div class="field">
+      <label>Tone</label>
+      <select id="tone">
+        <option value="venligt og professionelt">Venligt og professionelt</option>
+        <option value="afslappet og personligt">Afslappet og personligt</option>
+        <option value="formelt">Formelt</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-card new"><div class="num" id="statNew">0</div><div class="label">Nye siden sidst</div></div>
+    <div class="stat-card"><div class="num" id="statTotal">0</div><div class="label">Anmeldelser i alt</div></div>
+    <div class="stat-card"><div class="num" id="statSent">0</div><div class="label">Besvarede</div></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="chip" data-filter="all">Alle</button>
+    <button class="chip" data-filter="5">★★★★★</button>
+    <button class="chip" data-filter="4">★★★★☆</button>
+    <button class="chip" data-filter="low">≤3 stjerner</button>
+    <button class="chip" data-filter="new">Kun nye</button>
+    <div class="spacer"></div>
+    <button class="primary-action" id="bulkGenerate" disabled>Generér svar for valgte (0)</button>
+  </div>
+
+  <div id="error" class="error"></div>
+  <div id="reviewList"></div>
+  <div id="emptyState" class="empty" style="display:none;">Ingen anmeldelser endnu — tilføj en herunder for at teste.</div>
+
+  <div class="add-review-form">
+    <div class="row">
+      <input class="name-field" id="newName" placeholder="Anmelders navn" />
+      <select class="rating-field" id="newRating">
+        <option value="5">5 ★</option>
+        <option value="4">4 ★</option>
+        <option value="3">3 ★</option>
+        <option value="2">2 ★</option>
+        <option value="1">1 ★</option>
+      </select>
+    </div>
+    <textarea id="newText" placeholder="Indsæt anmeldelsens tekst..."></textarea>
+    <div class="row" style="margin-top:8px;">
+      <button id="addReviewBtn" type="button">+ Tilføj anmeldelse</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // In-memory "database" for prototypen. I en rigtig version kommer dette fra
+  // Google Places/Business Profile API i stedet for manuel indtastning.
+  let reviews = [
+    { id: 1, reviewerName: "Mette H.", rating: 5, reviewText: "Fantastisk kaffe og super hyggelig stemning! Kommer helt sikkert igen.", status: "new", draft: "" },
+    { id: 2, reviewerName: "Jonas K.", rating: 2, reviewText: "Ventede 25 minutter på en simpel bestilling, og personalet virkede stressede.", status: "new", draft: "" },
+    { id: 3, reviewerName: "Sara L.", rating: 5, reviewText: "Bedste flat white i hele kvarteret. Elsker interiøret.", status: "new", draft: "" },
+    { id: 4, reviewerName: "Peter M.", rating: 4, reviewText: "God oplevelse, men lidt dyrt for hvad man får.", status: "pending", draft: "" },
+  ];
+  let nextId = 5;
+  let currentFilter = "all";
+
+  const reviewList = document.getElementById("reviewList");
+  const emptyState = document.getElementById("emptyState");
+  const errorDiv = document.getElementById("error");
+
+  function starString(n) {
+    n = Number(n);
+    return "★".repeat(n) + "☆".repeat(5 - n);
+  }
+
+  function updateStats() {
+    document.getElementById("statNew").textContent = reviews.filter(r => r.status === "new").length;
+    document.getElementById("statTotal").textContent = reviews.length;
+    document.getElementById("statSent").textContent = reviews.filter(r => r.status === "sent").length;
+  }
+
+  function filteredReviews() {
+    if (currentFilter === "all") return reviews;
+    if (currentFilter === "new") return reviews.filter(r => r.status === "new");
+    if (currentFilter === "low") return reviews.filter(r => Number(r.rating) <= 3);
+    return reviews.filter(r => String(r.rating) === currentFilter);
+  }
+
+  function render() {
+    updateStats();
+    const list = filteredReviews();
+    reviewList.innerHTML = "";
+    emptyState.style.display = list.length === 0 ? "block" : "none";
+
+    list.forEach(r => {
+      const row = document.createElement("div");
+      row.className = "review-row" + (r.status === "new" ? " is-new" : "");
+
+      const badge = r.status === "new" ? '<span class="badge new">Ny</span>'
+        : r.status === "ready" ? '<span class="badge ready">Udkast klar</span>'
+        : r.status === "sent" ? '<span class="badge sent">✓ Sendt</span>'
+        : '';
+
+      row.innerHTML = `
+        <div class="review-head">
+          <input type="checkbox" class="rowCheck" data-id="${r.id}" ${r.status === "sent" ? "disabled" : ""} />
+          <div class="review-info">
+            <div class="top-line">
+              <span class="name">${r.reviewerName || "Anonym"}</span>
+              <span class="stars">${starString(r.rating)}</span>
+              ${badge}
+            </div>
+            <div class="review-text">"${r.reviewText}"</div>
+          </div>
+        </div>
+        ${r.draft ? `
+          <div class="draft-box">
+            <textarea class="draftText" data-id="${r.id}">${r.draft}</textarea>
+            <div class="draft-actions">
+              <button class="btn-send" data-id="${r.id}" ${r.status === "sent" ? "disabled" : ""}>
+                ${r.status === "sent" ? "Sendt" : "Send til Google"}
+              </button>
+              <button class="btn-regen" data-id="${r.id}">Generér igen</button>
+            </div>
+            <div class="send-note">⚠ Prototype: "Send" kopierer svaret til udklipsholder for nu — automatisk afsendelse til Google kræver godkendt Business Profile API-adgang (se README).</div>
+          </div>
+        ` : ""}
+      `;
+      reviewList.appendChild(row);
+    });
+
+    updateBulkButton();
+  }
+
+  function updateBulkButton() {
+    const checked = document.querySelectorAll(".rowCheck:checked").length;
+    const btn = document.getElementById("bulkGenerate");
+    btn.textContent = `Generér svar for valgte (${checked})`;
+    btn.disabled = checked === 0;
+  }
+
+  reviewList.addEventListener("change", (e) => {
+    if (e.target.classList.contains("rowCheck")) updateBulkButton();
+    if (e.target.classList.contains("draftText")) {
+      const id = Number(e.target.dataset.id);
+      const r = reviews.find(x => x.id === id);
+      if (r) r.draft = e.target.value;
+    }
+  });
+
+  reviewList.addEventListener("click", (e) => {
+    const id = Number(e.target.dataset.id);
+    if (e.target.classList.contains("btn-send")) {
+      const r = reviews.find(x => x.id === id);
+      if (!r) return;
+      navigator.clipboard.writeText(r.draft);
+      r.status = "sent";
+      render();
+    }
+    if (e.target.classList.contains("btn-regen")) {
+      generateFor([id]);
+    }
+  });
+
+  document.querySelectorAll(".toolbar .chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      currentFilter = chip.dataset.filter;
+      document.querySelectorAll(".toolbar .chip").forEach(c => c.style.borderColor = "");
+      chip.style.borderColor = "var(--accent)";
+      render();
+    });
+  });
+
+  document.getElementById("bulkGenerate").addEventListener("click", () => {
+    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => Number(cb.dataset.id));
+    generateFor(ids);
+  });
+
+  async function generateFor(ids) {
+    errorDiv.textContent = "";
+    const businessName = document.getElementById("businessName").value.trim();
+    const businessType = document.getElementById("businessType").value.trim();
+    const tone = document.getElementById("tone").value;
+
+    const toGenerate = reviews.filter(r => ids.includes(r.id));
+    if (toGenerate.length === 0) return;
+
+    const btn = document.getElementById("bulkGenerate");
+    btn.disabled = true;
+    btn.textContent = "Genererer...";
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          businessName, businessType, tone,
+          reviews: toGenerate.map(r => ({ id: r.id, reviewerName: r.reviewerName, rating: r.rating, reviewText: r.reviewText })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ukendt fejl");
+
+      data.results.forEach(result => {
+        const r = reviews.find(x => x.id === result.id);
+        if (r) {
+          r.draft = result.draft;
+          r.status = "ready";
+        }
+      });
+      render();
+    } catch (err) {
+      errorDiv.textContent = "Fejl: " + err.message;
+    } finally {
+      updateBulkButton();
+    }
+  }
+
+  document.getElementById("addReviewBtn").addEventListener("click", () => {
+    const name = document.getElementById("newName").value.trim();
+    const rating = document.getElementById("newRating").value;
+    const text = document.getElementById("newText").value.trim();
+    if (!text) return;
+    reviews.unshift({ id: nextId++, reviewerName: name, rating, reviewText: text, status: "new", draft: "" });
+    document.getElementById("newName").value = "";
+    document.getElementById("newText").value = "";
+    render();
+  });
+
+  render();
+</script>
+</body>
+</html>
