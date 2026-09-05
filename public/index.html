@@ -54,6 +54,21 @@
   .stat-card .num { font-size: 26px; font-weight: 700; }
   .stat-card .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .stat-card.new .num { color: var(--new); }
+  .panel { background: var(--card); border: 1px dashed var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; }
+  .panel .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .panel input, .panel select, .panel textarea {
+    background: #10131a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .panel .name-field { flex: 1; min-width: 220px; }
+  .panel button { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .tabs { display: flex; gap: 18px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    background: transparent; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); padding: 8px 2px 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
   .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
   .toolbar button.chip {
     background: #10131a; border: 1px solid var(--border); color: var(--text);
@@ -67,6 +82,12 @@
   }
   .toolbar button.primary-action:disabled { opacity: 0.4; cursor: not-allowed; }
   .toolbar button.primary-action:hover:not(:disabled) { background: var(--accent-hover); }
+  .toolbar button.secondary-action {
+    background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .toolbar button.secondary-action:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toolbar button.secondary-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .review-row { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
   .review-row.is-new { border-left: 3px solid var(--new); }
   .review-head { display: flex; align-items: flex-start; gap: 12px; }
@@ -91,16 +112,6 @@
   .btn-send:disabled { background: var(--border); color: var(--muted); cursor: default; }
   .btn-regen { background: transparent; border: 1px solid var(--border) !important; color: var(--muted); }
   .send-note { font-size: 11px; color: var(--muted); margin-top: 6px; }
-  .add-review-form { background: var(--card); border: 1px dashed var(--border); border-radius: 12px; padding: 14px 16px; margin-top: 16px; }
-  .add-review-form .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-  .add-review-form input, .add-review-form select, .add-review-form textarea {
-    background: #10131a; border: 1px solid var(--border); border-radius: 8px; color: var(--text);
-    padding: 8px 10px; font-size: 13px; font-family: inherit;
-  }
-  .add-review-form .name-field { flex: 1; min-width: 140px; }
-  .add-review-form .rating-field { width: 80px; }
-  .add-review-form textarea { width: 100%; min-height: 50px; resize: vertical; }
-  .add-review-form button { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
   .error { color: var(--danger); font-size: 13px; margin: 10px 0; }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 30px 0; }
 </style>
@@ -134,21 +145,7 @@
     <div class="stat-card"><div class="num" id="statSent">0</div><div class="label">Besvarede</div></div>
   </div>
 
-  <div class="toolbar">
-    <button class="chip" data-filter="all">Alle</button>
-    <button class="chip" data-filter="5">★★★★★</button>
-    <button class="chip" data-filter="4">★★★★☆</button>
-    <button class="chip" data-filter="low">≤3 stjerner</button>
-    <button class="chip" data-filter="new">Kun nye</button>
-    <div class="spacer"></div>
-    <button class="primary-action" id="bulkGenerate" disabled>Generér svar for valgte (0)</button>
-  </div>
-
-  <div id="error" class="error"></div>
-  <div id="reviewList"></div>
-  <div id="emptyState" class="empty" style="display:none;">Ingen anmeldelser endnu — tilføj en herunder for at teste.</div>
-
-  <div class="add-review-form" id="placesPanel">
+  <div class="panel" id="placesPanel">
     <div class="row">
       <input class="name-field" id="placesQuery" placeholder="Søg din virksomhed på Google (fx 'Café Nordvest København')" />
       <button id="placesSearchBtn" type="button">Søg på Google</button>
@@ -160,35 +157,31 @@
     </div>
   </div>
 
-  <div class="add-review-form">
-    <div class="row">
-      <input class="name-field" id="newName" placeholder="Anmelders navn" />
-      <select class="rating-field" id="newRating">
-        <option value="5">5 ★</option>
-        <option value="4">4 ★</option>
-        <option value="3">3 ★</option>
-        <option value="2">2 ★</option>
-        <option value="1">1 ★</option>
-      </select>
-    </div>
-    <textarea id="newText" placeholder="Indsæt anmeldelsens tekst..."></textarea>
-    <div class="row" style="margin-top:8px;">
-      <button id="addReviewBtn" type="button">+ Tilføj anmeldelse</button>
-    </div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="unanswered">Nye / ubesvarede</button>
+    <button class="tab-btn" data-tab="answered">Besvarede</button>
   </div>
+
+  <div class="toolbar">
+    <button class="chip" data-filter="all">Alle</button>
+    <button class="chip" data-filter="5">★★★★★</button>
+    <button class="chip" data-filter="4">★★★★☆</button>
+    <button class="chip" data-filter="low">≤3 stjerner</button>
+    <div class="spacer"></div>
+    <button class="secondary-action" id="bulkMarkAnswered" disabled>Markér som besvaret (0)</button>
+    <button class="primary-action" id="bulkGenerate" disabled>Generér svar for valgte (0)</button>
+  </div>
+
+  <div id="error" class="error"></div>
+  <div id="reviewList"></div>
+  <div id="emptyState" class="empty" style="display:none;"></div>
 </div>
 
 <script>
-  // In-memory "database" for prototypen. I en rigtig version kommer dette fra
-  // Google Places/Business Profile API i stedet for manuel indtastning.
-  let reviews = [
-    { id: 1, reviewerName: "Mette H.", rating: 5, reviewText: "Fantastisk kaffe og super hyggelig stemning! Kommer helt sikkert igen.", status: "new", draft: "" },
-    { id: 2, reviewerName: "Jonas K.", rating: 2, reviewText: "Ventede 25 minutter på en simpel bestilling, og personalet virkede stressede.", status: "new", draft: "" },
-    { id: 3, reviewerName: "Sara L.", rating: 5, reviewText: "Bedste flat white i hele kvarteret. Elsker interiøret.", status: "new", draft: "" },
-    { id: 4, reviewerName: "Peter M.", rating: 4, reviewText: "God oplevelse, men lidt dyrt for hvad man får.", status: "pending", draft: "" },
-  ];
-  let nextId = 5;
+  let reviews = [];
+  let nextId = 1;
   let currentFilter = "all";
+  let currentTab = "unanswered";
 
   const reviewList = document.getElementById("reviewList");
   const emptyState = document.getElementById("emptyState");
@@ -206,10 +199,12 @@
   }
 
   function filteredReviews() {
-    if (currentFilter === "all") return reviews;
-    if (currentFilter === "new") return reviews.filter(r => r.status === "new");
-    if (currentFilter === "low") return reviews.filter(r => Number(r.rating) <= 3);
-    return reviews.filter(r => String(r.rating) === currentFilter);
+    const base = currentTab === "answered"
+      ? reviews.filter(r => r.status === "sent")
+      : reviews.filter(r => r.status !== "sent");
+    if (currentFilter === "all") return base;
+    if (currentFilter === "low") return base.filter(r => Number(r.rating) <= 3);
+    return base.filter(r => String(r.rating) === currentFilter);
   }
 
   function render() {
@@ -217,6 +212,9 @@
     const list = filteredReviews();
     reviewList.innerHTML = "";
     emptyState.style.display = list.length === 0 ? "block" : "none";
+    emptyState.textContent = currentTab === "answered"
+      ? "Ingen besvarede anmeldelser endnu."
+      : "Ingen anmeldelser endnu — søg din virksomhed ovenfor for at hente anmeldelser fra Google.";
 
     list.forEach(r => {
       const row = document.createElement("div");
@@ -224,12 +222,34 @@
 
       const badge = r.status === "new" ? '<span class="badge new">Ny</span>'
         : r.status === "ready" ? '<span class="badge ready">Udkast klar</span>'
-        : r.status === "sent" ? '<span class="badge sent">✓ Sendt</span>'
+        : r.status === "sent" ? '<span class="badge sent">✓ Besvaret</span>'
         : '';
+
+      let draftSection = "";
+      if (r.status === "sent") {
+        if (r.draft) {
+          draftSection = `
+            <div class="draft-box">
+              <div class="review-text" style="font-style: normal;">${r.draft}</div>
+            </div>
+          `;
+        }
+      } else if (r.draft) {
+        draftSection = `
+          <div class="draft-box">
+            <textarea class="draftText" data-id="${r.id}">${r.draft}</textarea>
+            <div class="draft-actions">
+              <button class="btn-send" data-id="${r.id}">Send til Google</button>
+              <button class="btn-regen" data-id="${r.id}">Generér igen</button>
+            </div>
+            <div class="send-note">⚠ Prototype: "Send" kopierer svaret til udklipsholder for nu — automatisk afsendelse til Google kræver godkendt Business Profile API-adgang (se README).</div>
+          </div>
+        `;
+      }
 
       row.innerHTML = `
         <div class="review-head">
-          <input type="checkbox" class="rowCheck" data-id="${r.id}" ${r.status === "sent" ? "disabled" : ""} />
+          ${currentTab === "unanswered" ? `<input type="checkbox" class="rowCheck" data-id="${r.id}" />` : ""}
           <div class="review-info">
             <div class="top-line">
               <span class="name">${r.reviewerName || "Anonym"}</span>
@@ -239,34 +259,26 @@
             <div class="review-text">"${r.reviewText}"</div>
           </div>
         </div>
-        ${r.draft ? `
-          <div class="draft-box">
-            <textarea class="draftText" data-id="${r.id}">${r.draft}</textarea>
-            <div class="draft-actions">
-              <button class="btn-send" data-id="${r.id}" ${r.status === "sent" ? "disabled" : ""}>
-                ${r.status === "sent" ? "Sendt" : "Send til Google"}
-              </button>
-              <button class="btn-regen" data-id="${r.id}">Generér igen</button>
-            </div>
-            <div class="send-note">⚠ Prototype: "Send" kopierer svaret til udklipsholder for nu — automatisk afsendelse til Google kræver godkendt Business Profile API-adgang (se README).</div>
-          </div>
-        ` : ""}
+        ${draftSection}
       `;
       reviewList.appendChild(row);
     });
 
-    updateBulkButton();
+    updateBulkButtons();
   }
 
-  function updateBulkButton() {
+  function updateBulkButtons() {
     const checked = document.querySelectorAll(".rowCheck:checked").length;
-    const btn = document.getElementById("bulkGenerate");
-    btn.textContent = `Generér svar for valgte (${checked})`;
-    btn.disabled = checked === 0;
+    const generateBtn = document.getElementById("bulkGenerate");
+    const markBtn = document.getElementById("bulkMarkAnswered");
+    generateBtn.textContent = `Generér svar for valgte (${checked})`;
+    generateBtn.disabled = checked === 0;
+    markBtn.textContent = `Markér som besvaret (${checked})`;
+    markBtn.disabled = checked === 0;
   }
 
   reviewList.addEventListener("change", (e) => {
-    if (e.target.classList.contains("rowCheck")) updateBulkButton();
+    if (e.target.classList.contains("rowCheck")) updateBulkButtons();
     if (e.target.classList.contains("draftText")) {
       const id = Number(e.target.dataset.id);
       const r = reviews.find(x => x.id === id);
@@ -288,6 +300,17 @@
     }
   });
 
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      currentTab = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById("bulkGenerate").style.display = currentTab === "answered" ? "none" : "";
+      document.getElementById("bulkMarkAnswered").style.display = currentTab === "answered" ? "none" : "";
+      render();
+    });
+  });
+
   document.querySelectorAll(".toolbar .chip").forEach(chip => {
     chip.addEventListener("click", () => {
       currentFilter = chip.dataset.filter;
@@ -300,6 +323,15 @@
   document.getElementById("bulkGenerate").addEventListener("click", () => {
     const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => Number(cb.dataset.id));
     generateFor(ids);
+  });
+
+  document.getElementById("bulkMarkAnswered").addEventListener("click", () => {
+    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => Number(cb.dataset.id));
+    ids.forEach(id => {
+      const r = reviews.find(x => x.id === id);
+      if (r) r.status = "sent";
+    });
+    render();
   });
 
   async function generateFor(ids) {
@@ -338,13 +370,13 @@
     } catch (err) {
       errorDiv.textContent = "Fejl: " + err.message;
     } finally {
-      updateBulkButton();
+      updateBulkButtons();
     }
   }
 
   let selectedPlaceId = null;
 
-  document.getElementById("placesSearchBtn").addEventListener("click", async () => {
+  async function searchPlaces() {
     errorDiv.textContent = "";
     const query = document.getElementById("placesQuery").value.trim();
     if (!query) return;
@@ -387,6 +419,14 @@
       errorDiv.textContent = "Fejl: " + err.message;
       resultsDiv.innerHTML = "";
     }
+  }
+
+  document.getElementById("placesSearchBtn").addEventListener("click", searchPlaces);
+  document.getElementById("placesQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      searchPlaces();
+    }
   });
 
   document.getElementById("placesFetchBtn").addEventListener("click", async () => {
@@ -428,17 +468,6 @@
       btn.disabled = false;
       btn.textContent = "Hent seneste anmeldelser";
     }
-  });
-
-  document.getElementById("addReviewBtn").addEventListener("click", () => {
-    const name = document.getElementById("newName").value.trim();
-    const rating = document.getElementById("newRating").value;
-    const text = document.getElementById("newText").value.trim();
-    if (!text) return;
-    reviews.unshift({ id: nextId++, reviewerName: name, rating, reviewText: text, status: "new", draft: "" });
-    document.getElementById("newName").value = "";
-    document.getElementById("newText").value = "";
-    render();
   });
 
   render();

@@ -1,10 +1,10 @@
 # Review Assistant — dashboard-prototype
 
-Et dashboard hvor en butiksejer kan se nye anmeldelser, vælge hvilke der skal
-have AI-genereret svar (fx alle 5-stjernede), gennemgå/redigere udkastet, og
-trykke "Send". Dette er en **MVP til at teste konceptet og flowet** — anmeldelser
-tilføjes stadig manuelt, og "Send til Google" kopierer til udklipsholder i
-stedet for at poste direkte (se afsnittet om Google Business Profile API nedenfor).
+Et dashboard hvor en butiksejer kan hente virksomhedens anmeldelser fra Google,
+vælge hvilke der skal have AI-genereret svar (fx alle 5-stjernede),
+gennemgå/redigere udkastet, og trykke "Send". Dette er en **MVP til at teste
+konceptet og flowet** — "Send til Google" kopierer til udklipsholder i stedet
+for at poste direkte (se afsnittet om Google Business Profile API nedenfor).
 
 ## Sådan kører du den i VS Code
 
@@ -28,10 +28,11 @@ stedet for at poste direkte (se afsnittet om Google Business Profile API nedenfo
 ## Hvordan du bruger den
 
 1. Indtast virksomhedsnavn og branche øverst
-2. Tilføj et par rigtige anmeldelser fra virksomhedens Google Maps-side i formularen nederst (kopiér navn, stjerner og tekst manuelt for nu — se afsnit om automatisk hentning nedenfor)
+2. Søg din virksomhed op i boksen (tryk Enter eller "Søg på Google"), vælg den rigtige i resultatlisten, og klik "Hent seneste anmeldelser" — de lander under "Nye / ubesvarede"
 3. Brug filter-chips (fx "★★★★★") til at vælge en gruppe, sæt flueben ved dem du vil have svar til
 4. Klik "Generér svar for valgte" — udkast dukker op under hver anmeldelse, redigérbare
-5. Klik "Send til Google" — kopierer svaret til udklipsholderen og markerer anmeldelsen som besvaret
+5. Klik "Send til Google" — kopierer svaret til udklipsholderen og flytter anmeldelsen til "Besvarede"-fanen
+6. Har en anmeldelse allerede fået svar direkte på Google (fx før I brugte dette værktøj), sæt flueben ved den og klik "Markér som besvaret" for at flytte den til "Besvarede" uden at generere et nyt svar
 
 ## Vejen til "1-knap send direkte til Google"
 
@@ -52,8 +53,8 @@ demonstrere værdien for kunderne på.
 
 ## Automatisk hentning af anmeldelser (Google Places API)
 
-Under "Tilføj anmeldelse"-formularen kan du søge din virksomhed op på Google og
-hente dens seneste anmeldelser automatisk i stedet for at copy-paste dem manuelt.
+I boksen øverst kan du søge din virksomhed op på Google og hente dens seneste
+anmeldelser automatisk.
 
 For at det virker:
 
