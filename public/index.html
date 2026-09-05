@@ -148,6 +148,18 @@
   <div id="reviewList"></div>
   <div id="emptyState" class="empty" style="display:none;">Ingen anmeldelser endnu — tilføj en herunder for at teste.</div>
 
+  <div class="add-review-form" id="placesPanel">
+    <div class="row">
+      <input class="name-field" id="placesQuery" placeholder="Søg din virksomhed på Google (fx 'Café Nordvest København')" />
+      <button id="placesSearchBtn" type="button">Søg på Google</button>
+    </div>
+    <div id="placesResults"></div>
+    <div class="row" id="placesFetchRow" style="display:none; align-items:center; margin-top:8px;">
+      <button id="placesFetchBtn" type="button">Hent seneste anmeldelser</button>
+      <span class="send-note" style="margin:0;">⚠ Google udstiller maks. 5 anmeldelser pr. sted via denne API — ikke alle jeres.</span>
+    </div>
+  </div>
+
   <div class="add-review-form">
     <div class="row">
       <input class="name-field" id="newName" placeholder="Anmelders navn" />
@@ -329,6 +341,94 @@
       updateBulkButton();
     }
   }
+
+  let selectedPlaceId = null;
+
+  document.getElementById("placesSearchBtn").addEventListener("click", async () => {
+    errorDiv.textContent = "";
+    const query = document.getElementById("placesQuery").value.trim();
+    if (!query) return;
+
+    const resultsDiv = document.getElementById("placesResults");
+    resultsDiv.innerHTML = "<div class=\"send-note\">Søger...</div>";
+    document.getElementById("placesFetchRow").style.display = "none";
+    selectedPlaceId = null;
+
+    try {
+      const res = await fetch(`/api/places/search?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ukendt fejl");
+
+      if (data.places.length === 0) {
+        resultsDiv.innerHTML = "<div class=\"send-note\">Ingen resultater — prøv et mere præcist navn eller tilføj by/adresse.</div>";
+        return;
+      }
+
+      resultsDiv.innerHTML = "";
+      data.places.forEach(place => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip";
+        btn.style.display = "block";
+        btn.style.width = "100%";
+        btn.style.textAlign = "left";
+        btn.style.marginTop = "6px";
+        btn.innerHTML = `<strong>${place.name}</strong><br><span style="color:var(--muted); font-size:11px;">${place.address}</span>`;
+        btn.addEventListener("click", () => {
+          selectedPlaceId = place.placeId;
+          document.querySelectorAll("#placesResults .chip").forEach(c => c.style.borderColor = "");
+          btn.style.borderColor = "var(--accent)";
+          document.getElementById("placesFetchRow").style.display = "flex";
+          if (place.name) document.getElementById("businessName").value = place.name;
+        });
+        resultsDiv.appendChild(btn);
+      });
+    } catch (err) {
+      errorDiv.textContent = "Fejl: " + err.message;
+      resultsDiv.innerHTML = "";
+    }
+  });
+
+  document.getElementById("placesFetchBtn").addEventListener("click", async () => {
+    errorDiv.textContent = "";
+    if (!selectedPlaceId) return;
+
+    const btn = document.getElementById("placesFetchBtn");
+    btn.disabled = true;
+    btn.textContent = "Henter...";
+
+    try {
+      const res = await fetch(`/api/places/reviews?placeId=${encodeURIComponent(selectedPlaceId)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ukendt fejl");
+
+      const existingExternalIds = new Set(reviews.map(r => r.externalId).filter(Boolean));
+      let added = 0;
+      data.reviews.forEach(r => {
+        if (r.externalId && existingExternalIds.has(r.externalId)) return;
+        reviews.unshift({
+          id: nextId++,
+          externalId: r.externalId,
+          reviewerName: r.reviewerName,
+          rating: r.rating,
+          reviewText: r.reviewText,
+          status: "new",
+          draft: "",
+        });
+        added++;
+      });
+
+      render();
+      if (added === 0) {
+        errorDiv.textContent = "Ingen nye anmeldelser at hente (de var allerede på listen).";
+      }
+    } catch (err) {
+      errorDiv.textContent = "Fejl: " + err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Hent seneste anmeldelser";
+    }
+  });
 
   document.getElementById("addReviewBtn").addEventListener("click", () => {
     const name = document.getElementById("newName").value.trim();
