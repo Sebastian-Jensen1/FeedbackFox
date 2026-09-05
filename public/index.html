@@ -163,6 +163,10 @@
   </div>
 
   <div class="toolbar">
+    <label id="selectAllWrap" style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); cursor:pointer;">
+      <input type="checkbox" id="selectAllCheck" />
+      Markér alle
+    </label>
     <button class="chip" data-filter="all">Alle</button>
     <button class="chip" data-filter="5">★★★★★</button>
     <button class="chip" data-filter="4">★★★★☆</button>
@@ -268,6 +272,7 @@
   }
 
   function updateBulkButtons() {
+    const all = document.querySelectorAll(".rowCheck");
     const checked = document.querySelectorAll(".rowCheck:checked").length;
     const generateBtn = document.getElementById("bulkGenerate");
     const markBtn = document.getElementById("bulkMarkAnswered");
@@ -275,7 +280,16 @@
     generateBtn.disabled = checked === 0;
     markBtn.textContent = `Markér som besvaret (${checked})`;
     markBtn.disabled = checked === 0;
+
+    const selectAllCheck = document.getElementById("selectAllCheck");
+    selectAllCheck.checked = all.length > 0 && checked === all.length;
+    selectAllCheck.indeterminate = checked > 0 && checked < all.length;
   }
+
+  document.getElementById("selectAllCheck").addEventListener("change", (e) => {
+    document.querySelectorAll(".rowCheck").forEach(cb => cb.checked = e.target.checked);
+    updateBulkButtons();
+  });
 
   reviewList.addEventListener("change", (e) => {
     if (e.target.classList.contains("rowCheck")) updateBulkButtons();
@@ -307,6 +321,7 @@
       btn.classList.add("active");
       document.getElementById("bulkGenerate").style.display = currentTab === "answered" ? "none" : "";
       document.getElementById("bulkMarkAnswered").style.display = currentTab === "answered" ? "none" : "";
+      document.getElementById("selectAllWrap").style.display = currentTab === "answered" ? "none" : "flex";
       render();
     });
   });
