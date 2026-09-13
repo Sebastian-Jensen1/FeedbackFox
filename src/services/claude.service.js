@@ -1,43 +1,4 @@
-// Henter en URL og parser JSON, kaster en beskrivende fejl hvis kaldet fejler.
-async function fetchJson(url, options) {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API-fejl (${response.status}): ${errText}`);
-  }
-  return response.json();
-}
-
-// Omdanner et Places "searchText"-resultat til det format vi sender til frontenden.
-function toPlaceSummary(p) {
-  return {
-    placeId: p.id,
-    name: p.displayName?.text || "",
-    address: p.formattedAddress || "",
-  };
-}
-
-// Omdanner en Places-anmeldelse til det format vi sender til frontenden.
-function toReviewSummary(r) {
-  return {
-    externalId: r.name,
-    reviewerName: r.authorAttribution?.displayName || "",
-    rating: r.rating,
-    reviewText: r.text?.text || r.originalText?.text || "",
-    publishTime: r.publishTime,
-  };
-}
-
-// Omdanner et Places Details-svar til det format vi sender til frontenden.
-function toPlaceDetails(data) {
-  return {
-    businessName: data.displayName?.text || "",
-    address: data.formattedAddress || "",
-    rating: data.rating,
-    userRatingCount: data.userRatingCount,
-    reviews: (data.reviews || []).map(toReviewSummary),
-  };
-}
+const { fetchJson } = require("../utils/http");
 
 // Tjekker at der er sendt et virksomhedsnavn og mindst én anmeldelse.
 function hasRequiredGenerateFields(businessName, reviews) {
@@ -105,10 +66,6 @@ async function draftReviewReply(review, { businessName, businessType, tone }, ap
 }
 
 module.exports = {
-  fetchJson,
-  toPlaceSummary,
-  toReviewSummary,
-  toPlaceDetails,
   hasRequiredGenerateFields,
   draftReviewReply,
 };
