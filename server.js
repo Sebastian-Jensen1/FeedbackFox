@@ -1,6 +1,13 @@
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
+const {
+  fetchJson,
+  toPlaceSummary,
+  toPlaceDetails,
+  hasRequiredGenerateFields,
+  draftReviewReply,
+} = require("./utils");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -9,26 +16,6 @@ const PLACES_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
-
-// Bygger den prompt som sendes til Claude for hvert anmeldelse.
-function buildPrompt({ businessName, businessType, reviewerName, rating, reviewText, tone }) {
-  return `Du skriver et kort svar på en Google-anmeldelse på vegne af en dansk virksomhed.
-
-Virksomhed: ${businessName} (${businessType || "lokal virksomhed"})
-Anmelder: ${reviewerName || "kunden"}
-Stjerner: ${rating || "ukendt"}/5
-Anmeldelsens tekst: "${reviewText}"
-
-Skriv et svar der:
-- er på dansk, ${tone || "venligt og professionelt"} i tonen
-- hvis review er på engelsk eller hvilket som helst andet sprog end dansk, svares der på engelsk
-- forholder sig konkret til det anmelderen faktisk skriver (ikke generisk)
-- er kort (2-5 sætninger)
-- takker for anmeldelsen, og hvis den er negativ: anerkender problemet og inviterer til dialog uden at være undskyldende i overdrevent omfang
-- IKKE opdigter fakta, løfter eller navne der ikke er nævnt
-
-Svar KUN med selve svarteksten, ingen forklaring eller anførselstegn omkring.`;
-}
 
 app.post("/api/generate", async (req, res) => {
   if (!API_KEY) {
@@ -39,7 +26,7 @@ app.post("/api/generate", async (req, res) => {
 
   const { businessName, businessType, reviews, tone } = req.body;
 
-  if (!businessName || !Array.isArray(reviews) || reviews.length === 0) {
+  if (!hasRequiredGenerateFields(businessName, reviews)) {
     return res.status(400).json({ error: "Mangler virksomhedsnavn eller anmeldelser." });
   }
 
@@ -47,44 +34,7 @@ app.post("/api/generate", async (req, res) => {
     const results = [];
 
     for (const review of reviews) {
-      const prompt = buildPrompt({
-        businessName,
-        businessType,
-        reviewerName: review.reviewerName,
-        rating: review.rating,
-        reviewText: review.reviewText,
-        tone,
-      });
-
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 300,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Anthropic API-fejl (${response.status}): ${errText}`);
-      }
-
-      const data = await response.json();
-      const draft = data.content?.find((c) => c.type === "text")?.text?.trim() || "";
-
-      results.push({
-        id: review.id,
-        reviewerName: review.reviewerName,
-        rating: review.rating,
-        reviewText: review.reviewText,
-        draft,
-      });
+      results.push(await draftReviewReply(review, { businessName, businessType, tone }, API_KEY));
     }
 
     res.json({ results });
@@ -108,7 +58,7 @@ app.get("/api/places/search", async (req, res) => {
   }
 
   try {
-    const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    const data = await fetchJson("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -118,19 +68,7 @@ app.get("/api/places/search", async (req, res) => {
       body: JSON.stringify({ textQuery: query, languageCode: "da" }),
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Places API-fejl (${response.status}): ${errText}`);
-    }
-
-    const data = await response.json();
-    const places = (data.places || []).map((p) => ({
-      placeId: p.id,
-      name: p.displayName?.text || "",
-      address: p.formattedAddress || "",
-    }));
-
-    res.json({ places });
+    res.json({ places: (data.places || []).map(toPlaceSummary) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
@@ -152,7 +90,7 @@ app.get("/api/places/reviews", async (req, res) => {
   }
 
   try {
-    const response = await fetch(
+    const data = await fetchJson(
       `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=da`,
       {
         headers: {
@@ -162,27 +100,7 @@ app.get("/api/places/reviews", async (req, res) => {
       }
     );
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Places API-fejl (${response.status}): ${errText}`);
-    }
-
-    const data = await response.json();
-    const reviews = (data.reviews || []).map((r) => ({
-      externalId: r.name,
-      reviewerName: r.authorAttribution?.displayName || "",
-      rating: r.rating,
-      reviewText: r.text?.text || r.originalText?.text || "",
-      publishTime: r.publishTime,
-    }));
-
-    res.json({
-      businessName: data.displayName?.text || "",
-      address: data.formattedAddress || "",
-      rating: data.rating,
-      userRatingCount: data.userRatingCount,
-      reviews,
-    });
+    res.json(toPlaceDetails(data));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
