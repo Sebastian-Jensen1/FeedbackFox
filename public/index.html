@@ -183,7 +183,9 @@
 
 <script>
   let reviews = [];
-  let nextId = 1;
+  // Sættes når man har valgt et sted. Alt der skal gemmes hænger på denne —
+  // uden den ved serveren ikke hvilken restaurant en anmeldelse hører til.
+  let currentRestaurantId = null;
   let currentFilter = "all";
   let currentTab = "unanswered";
 
@@ -194,6 +196,27 @@
   function starString(n) {
     n = Number(n);
     return "★".repeat(n) + "☆".repeat(5 - n);
+  }
+
+  // Serveren svarer altid med {error} ved fejl. Uden denne ville en fejlet
+  // gemning se ud som om den lykkedes, fordi fetch kun kaster ved netværksfejl
+  // — ikke ved 400 og 500.
+  async function postJson(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Serverfejl (${res.status})`);
+    return data;
+  }
+
+  async function getJson(url) {
+    const res = await fetch(url);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Serverfejl (${res.status})`);
+    return data;
   }
 
   function updateStats() {
@@ -294,20 +317,34 @@
   reviewList.addEventListener("change", (e) => {
     if (e.target.classList.contains("rowCheck")) updateBulkButtons();
     if (e.target.classList.contains("draftText")) {
-      const id = Number(e.target.dataset.id);
-      const r = reviews.find(x => x.id === id);
+      // Kun lokalt mens man skriver. Teksten gemmes når man trykker "Send" —
+      // ellers ville hvert tastetryk blive et kald til serveren.
+      const r = reviews.find(x => x.id === e.target.dataset.id);
       if (r) r.draft = e.target.value;
     }
   });
 
-  reviewList.addEventListener("click", (e) => {
-    const id = Number(e.target.dataset.id);
+  reviewList.addEventListener("click", async (e) => {
+    const id = e.target.dataset.id;
     if (e.target.classList.contains("btn-send")) {
       const r = reviews.find(x => x.id === id);
       if (!r) return;
-      navigator.clipboard.writeText(r.draft);
-      r.status = "sent";
-      render();
+
+      // Teksten læses fra feltet frem for fra r.draft: har man rettet i den og
+      // ikke forladt feltet endnu, er change-eventet ovenfor ikke nået at køre,
+      // og så ville vi gemme den gamle tekst.
+      const field = document.querySelector(`.draftText[data-id="${id}"]`);
+      const finalText = field ? field.value : r.draft;
+
+      navigator.clipboard.writeText(finalText);
+      try {
+        await postJson(`/api/reviews/${id}/send`, { finalText });
+        r.draft = finalText;
+        r.status = "sent";
+        render();
+      } catch (err) {
+        errorDiv.textContent = "Kunne ikke gemme svaret: " + err.message;
+      }
     }
     if (e.target.classList.contains("btn-regen")) {
       generateFor([id]);
@@ -336,17 +373,27 @@
   });
 
   document.getElementById("bulkGenerate").addEventListener("click", () => {
-    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => Number(cb.dataset.id));
+    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => cb.dataset.id);
     generateFor(ids);
   });
 
-  document.getElementById("bulkMarkAnswered").addEventListener("click", () => {
-    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => Number(cb.dataset.id));
-    ids.forEach(id => {
-      const r = reviews.find(x => x.id === id);
-      if (r) r.status = "sent";
-    });
-    render();
+  document.getElementById("bulkMarkAnswered").addEventListener("click", async () => {
+    errorDiv.textContent = "";
+    const ids = Array.from(document.querySelectorAll(".rowCheck:checked")).map(cb => cb.dataset.id);
+
+    try {
+      // Først når serveren har bekræftet hver enkelt, flyttes den i listen.
+      // Ellers ville en anmeldelse se besvaret ud indtil man genindlæste siden.
+      for (const id of ids) {
+        await postJson(`/api/reviews/${id}/answered`, {});
+        const r = reviews.find(x => x.id === id);
+        if (r) r.status = "sent";
+      }
+      render();
+    } catch (err) {
+      errorDiv.textContent = "Kunne ikke markere som besvaret: " + err.message;
+      render();
+    }
   });
 
   async function generateFor(ids) {
@@ -368,6 +415,8 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           businessName, businessType, tone,
+          // Sendes med så serveren kan huske tonen til næste gang.
+          restaurantId: currentRestaurantId,
           reviews: toGenerate.map(r => ({ id: r.id, reviewerName: r.reviewerName, rating: r.rating, reviewText: r.reviewText })),
         }),
       });
@@ -453,29 +502,21 @@
     btn.textContent = "Henter...";
 
     try {
-      const res = await fetch(`/api/places/reviews?placeId=${encodeURIComponent(selectedPlaceId)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Ukendt fejl");
+      const businessType = document.getElementById("businessType").value.trim();
+      const before = reviews.length;
 
-      const existingExternalIds = new Set(reviews.map(r => r.externalId).filter(Boolean));
-      let added = 0;
-      data.reviews.forEach(r => {
-        if (r.externalId && existingExternalIds.has(r.externalId)) return;
-        reviews.unshift({
-          id: nextId++,
-          externalId: r.externalId,
-          reviewerName: r.reviewerName,
-          rating: r.rating,
-          reviewText: r.reviewText,
-          status: "new",
-          draft: "",
-        });
-        added++;
-      });
+      const data = await getJson(
+        `/api/places/reviews?placeId=${encodeURIComponent(selectedPlaceId)}` +
+        `&businessType=${encodeURIComponent(businessType)}`
+      );
 
-      render();
-      if (added === 0) {
-        errorDiv.textContent = "Ingen nye anmeldelser at hente (de var allerede på listen).";
+      // Serveren har allerede gemt og flettet — listen erstattes derfor helt
+      // frem for at vi selv fletter her. Dubletter håndteres af databasen, og
+      // svaret indeholder også ældre anmeldelser som Google ikke sender mere.
+      applyRestaurantData(data);
+
+      if (reviews.length === before) {
+        errorDiv.textContent = "Ingen nye anmeldelser at hente (de var allerede gemt).";
       }
     } catch (err) {
       errorDiv.textContent = "Fejl: " + err.message;
@@ -485,7 +526,37 @@
     }
   });
 
+  // Ét sted der tager et serversvar og gør det til appens tilstand — bruges
+  // både når man henter fra Google og når siden indlæser gemte data.
+  function applyRestaurantData(data) {
+    currentRestaurantId = data.restaurantId;
+    reviews = data.reviews;
+
+    if (data.businessName) document.getElementById("businessName").value = data.businessName;
+    if (data.businessType) document.getElementById("businessType").value = data.businessType;
+    if (data.defaultTone) document.getElementById("tone").value = data.defaultTone;
+
+    render();
+  }
+
+  // Det der gør databasen synlig i appen: uden denne ville siden starte tom
+  // hver gang, uanset hvor meget der lå gemt.
+  async function loadSavedWork() {
+    try {
+      const { restaurants } = await getJson("/api/restaurants");
+      if (restaurants.length === 0) return;
+
+      // Listen kommer sorteret med senest opdaterede først, så det man sidst
+      // arbejdede på er det der åbner.
+      const data = await getJson(`/api/restaurants/${restaurants[0].id}/reviews`);
+      applyRestaurantData(data);
+    } catch (err) {
+      errorDiv.textContent = "Kunne ikke hente gemte anmeldelser: " + err.message;
+    }
+  }
+
   render();
+  loadSavedWork();
 </script>
 </body>
 </html>
