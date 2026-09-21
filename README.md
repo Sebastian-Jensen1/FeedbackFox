@@ -19,11 +19,101 @@ for at poste direkte (se afsnittet om Google Business Profile API nedenfor).
    cp .env.example .env
    ```
 5. Åbn `.env` og indsæt din egen Anthropic API-nøgle (hent en gratis på https://console.anthropic.com/settings/keys — kræver et lille indestående på kontoen, typisk et par kroner er nok til at teste)
-6. Start serveren:
+6. Sæt databasen op (se afsnittet nedenfor)
+7. Start serveren:
    ```
    npm start
    ```
-7. Åbn http://localhost:3000 i browseren
+8. Åbn http://localhost:3000 i browseren
+
+## Database (PostgreSQL på Neon)
+
+Databasen ligger hos [Neon](https://neon.tech/) og kører døgnet rundt, så vi
+begge arbejder mod de samme data uden at nogens computer skal være tændt.
+
+### Hvis databasen allerede er sat op (det normale)
+
+1. Få forbindelsesstrengen af den anden — den står **ikke** i Git, fordi den
+   indeholder adgangskoden til databasen
+2. Sæt den ind som `DATABASE_URL` i din `.env`
+3. `npm run migrate` — opretter de tabeller du eventuelt mangler
+4. `npm start`
+
+### Første gang databasen oprettes
+
+1. Opret en gratis konto på https://neon.tech (ingen betalingskort)
+2. Opret et projekt — vælg region **EU (Frankfurt)**, så data bliver i EU og
+   svartiden fra Danmark er lav
+3. Kopiér "Connection string" fra dashboardet. Den ser sådan ud:
+   ```
+   postgresql://bruger:adgangskode@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require
+   ```
+4. Sæt den ind i `.env` som `DATABASE_URL`, men ret `sslmode=require` til
+   `sslmode=verify-full` — se `.env.example` for hvorfor
+5. Kør `npm run migrate`
+
+Databasen hedder `neondb`. Det er med vilje: det er den Neon selv opretter, og
+vores tabeller ligger inde i den. Der skal ikke oprettes en `feedbackfox`.
+
+Neons onboarding foreslår også `neon skills`, `neon mcp`, `neon config init` og
+`neon deploy`. Det er deres infrastructure-as-code-værktøj (`neon.ts`) og
+agent-integrationer — vi bruger ingen af delene. Projektet snakker helt
+almindelig Postgres via `pg`, så der skal kun bruges en forbindelsesstreng.
+
+### Fælles database — hvad det betyder i praksis
+
+- I ser **de samme anmeldelser og svar med det samme**. Sletter den ene noget,
+  er det også væk for den anden
+- Skal I teste noget rodet, så skift midlertidigt til en lokal database (se
+  `.env.example`) — eller lav en gratis **branch** i Neon, som er en kopi af
+  data I kan arbejde i uden at ødelægge noget
+- Neon lukker databasen ned når den ikke bruges, og starter den igen ved næste
+  forespørgsel. Første kald efter en pause tager derfor et øjeblik. Det er ikke
+  en fejl, og `connectionTimeoutMillis` i `pool.js` er sat højt nok til det
+
+### Del aldrig forbindelsesstrengen i Git
+
+`DATABASE_URL` indeholder adgangskoden til hele databasen. `.env` er i
+`.gitignore` og skal blive der. Send strengen til hinanden på en måde der ikke
+ligger offentligt — og hvis den først er havnet i en commit, så skift
+adgangskoden i Neon med det samme frem for bare at slette linjen.
+
+`pool.js` kræver desuden et gyldigt certifikat for alt der ikke er localhost.
+Det er bevidst ikke overladt til `sslmode` i forbindelsesstrengen: en streng med
+`sslmode=no-verify` ville ellers slå tjekket fra, uden at man kunne se det nogen
+steder i koden. Får du en certifikatfejl, så sig til frem for at slå
+verifikationen fra — så er der noget galt der er værd at kigge på.
+
+### Migrationer
+
+```
+npm run migrate
+```
+
+Kommandoen er idempotent: den holder styr på hvad der er kørt i tabellen
+`schema_migrations` og springer det over næste gang.
+
+Skemaændringer laves som en **ny** fil i `src/db/migrations/` (fx
+`002_tilføj_kolonne.sql`). Ret aldrig i en migration der allerede er kørt — den
+er kørt på den fælles database, og en rettelse i filen bliver aldrig udført der.
+
+### Kigge direkte i dataene
+
+Nemmest er "SQL Editor" i Neons dashboard. Vil du hellere bruge terminalen, kan
+du bruge `psql` fra Postgres.app med den samme forbindelsesstreng:
+
+```
+/Applications/Postgres.app/Contents/Versions/latest/bin/psql "DIN_DATABASE_URL"
+```
+
+Er du træt af den lange sti, så læg den i `PATH` én gang:
+
+```
+sudo mkdir -p /etc/paths.d && echo /Applications/Postgres.app/Contents/Versions/latest/bin | sudo tee /etc/paths.d/postgresapp
+```
+
+Nyttige kommandoer: `\dt` (vis tabeller), `\d reviews` (vis kolonner),
+`SELECT * FROM reviews;`, `\q` (afslut).
 
 ## Hvordan du bruger den
 
@@ -74,7 +164,7 @@ se afsnittet ovenfor.
 
 ## Hvad der ellers mangler før det er et rigtigt produkt
 
-- **"Nye siden sidst"-tælleren** er lige nu bare demo-data (status `"new"` sat i koden). I en rigtig version skal det beregnes ud fra hvornår ejeren sidst besøgte dashboardet, gemt i en database.
+- **"Nye siden sidst"-tælleren** tæller nu de anmeldelser der reelt står som ubesvarede i databasen. Den mangler stadig at tage højde for *hvornår ejeren sidst var inde* — så "ny" betyder "ikke besvaret endnu", ikke "kommet til siden dit sidste besøg".
 - **Login/flere virksomheder**: hvis I vil have flere kunder, skal hver have sit eget "workspace" med egen liste af anmeldelser.
 - **Betaling**: Stripe-integration til abonnement, hvis I vil automatisere fakturering.
 
@@ -82,11 +172,35 @@ se afsnittet ovenfor.
 
 ```
 review-assistant/
-├── server.js           # Express-backend, kalder Claude API
-├── public/index.html   # Frontend (form + resultater)
+├── server.js                    # Opstart — lytter på porten
+├── src/
+│   ├── app.js                   # Express-app (middleware + routes)
+│   ├── config/env.js            # Læser .env ét sted
+│   ├── routes/                  # HTTP-endpoints
+│   ├── services/                # Claude- og Google Places-kald
+│   ├── models/                  # Al SQL, én fil pr. tabel
+│   └── db/
+│       ├── pool.js              # Delt connection pool + transaktioner
+│       ├── migrate.js           # Migrations-runner (npm run migrate)
+│       └── migrations/          # Nummererede .sql-filer, køres i rækkefølge
+├── public/index.html            # Frontend (form + resultater)
+├── python-backend/              # Alternativ FastAPI-backend
 ├── package.json
-├── .env.example         # Skabelon — kopiér til .env
-└── .env                 # DIN nøgle (opret selv, committes aldrig)
+├── .env.example                 # Skabelon — kopiér til .env
+└── .env                         # DINE nøgler (opret selv, committes aldrig)
 ```
 
-**Vigtigt:** Læg `.env` i `.gitignore` hvis du opretter et Git-repo — den indeholder din API-nøgle.
+**Vigtigt:** `.env` ligger allerede i `.gitignore` og skal blive der — den
+indeholder både API-nøgler og adgangskoden til databasen.
+
+## API-endpoints
+
+| Metode | Sti | Hvad den gør |
+| --- | --- | --- |
+| `GET` | `/api/places/search?query=` | Søger et sted op hos Google. Rører ikke databasen. |
+| `GET` | `/api/places/reviews?placeId=` | Henter fra Google, **gemmer** stedet og anmeldelserne, og svarer med det der nu står i databasen. |
+| `GET` | `/api/restaurants` | Alle gemte steder, senest brugte først. Kaldes når siden åbnes. |
+| `GET` | `/api/restaurants/:id/reviews` | Alle anmeldelser for et sted, med nyeste udkast hæftet på. |
+| `POST` | `/api/generate` | Genererer udkast med Claude og gemmer hvert af dem i `replies`. |
+| `POST` | `/api/reviews/:id/send` | Gemmer den tekst der faktisk blev sendt, og markerer anmeldelsen besvaret. |
+| `POST` | `/api/reviews/:id/answered` | Markerer besvaret uden at gemme en tekst (svaret blev givet på Google). |

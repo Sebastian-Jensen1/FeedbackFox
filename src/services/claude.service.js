@@ -1,5 +1,10 @@
 const { fetchJson } = require("../utils/http");
 
+// Ét sted at rette modelnavnet. Det gemmes sammen med hvert udkast i databasen,
+// så man bagefter kan se hvilken model der skrev hvad — ellers kan man ikke
+// vurdere om et modelskift gjorde svarene bedre eller værre.
+const MODEL = "claude-sonnet-4-6";
+
 // Tjekker at der er sendt et virksomhedsnavn og mindst én anmeldelse.
 function hasRequiredGenerateFields(businessName, reviews) {
   return Boolean(businessName) && Array.isArray(reviews) && reviews.length > 0;
@@ -50,7 +55,7 @@ async function draftReviewReply(review, { businessName, businessType, tone }, ap
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: MODEL,
       max_tokens: 300,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -62,10 +67,12 @@ async function draftReviewReply(review, { businessName, businessType, tone }, ap
     rating: review.rating,
     reviewText: review.reviewText,
     draft: extractDraftText(data),
+    model: MODEL,
   };
 }
 
 module.exports = {
+  MODEL,
   hasRequiredGenerateFields,
   draftReviewReply,
 };
