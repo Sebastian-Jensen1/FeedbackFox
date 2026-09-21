@@ -59,12 +59,44 @@ def build_csp(script_hashes: list[str]) -> str:
     )
 
 
+# Adresserne til de indbyggede API-oversigter (findes kun hvis ENABLE_DOCS=1).
+DOCS_PATHS = ("/docs", "/redoc")
+
+
+def build_docs_csp() -> str:
+    """En lempeligere CSP til /docs og /redoc, som kun bruges når ENABLE_DOCS=1.
+
+    De to sider henter deres design og JavaScript fra et eksternt CDN og har et
+    indlejret script. Med den strenge CSP ville de blive helt hvide. De viser ingen
+    brugerdata, og de er slukket som standard, så det er en acceptabel undtagelse.
+    """
+    return "; ".join(
+        [
+            "default-src 'none'",
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
+            "font-src https://fonts.gstatic.com",
+            "img-src 'self' data: https://fastapi.tiangolo.com",
+            "worker-src blob:",
+            "connect-src 'self'",
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+        ]
+    )
+
+
+def _is_docs_path(path: str) -> bool:
+    """Er dette en af API-oversigternes adresser (/docs, /redoc eller noget under dem)?"""
+    return any(path == docs or path.startswith(docs + "/") for docs in DOCS_PATHS)
+
+
 class SecurityHeadersMiddleware:
     """Tilføjer sikkerhedsheaders til hvert eneste svar."""
 
-    def __init__(self, app: ASGIApp, csp: str):
+    def __init__(self, app: ASGIApp, csp: str, docs_csp: str | None = None):
         self.app = app
         self.csp = csp
+        self.docs_csp = docs_csp  # None = /docs er slukket, så der er ingen undtagelse
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Kører for hver request. Sender den videre og retter svarets headers på vejen tilbage."""
@@ -73,12 +105,13 @@ class SecurityHeadersMiddleware:
             return
 
         is_api = scope["path"].startswith("/api/")
+        csp = self.docs_csp if self.docs_csp and _is_docs_path(scope["path"]) else self.csp
 
         async def send_with_headers(message: Message) -> None:
             """Tilføjer headers når svaret begynder at blive sendt."""
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                headers["Content-Security-Policy"] = self.csp
+                headers["Content-Security-Policy"] = csp
                 headers["X-Content-Type-Options"] = "nosniff"  # browseren må ikke gætte filtype
                 headers["Referrer-Policy"] = "no-referrer"
                 headers["Cross-Origin-Opener-Policy"] = "same-origin"

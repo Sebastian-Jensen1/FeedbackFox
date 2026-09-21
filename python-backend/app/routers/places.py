@@ -1,7 +1,5 @@
 """Endpoints der handler om Google: søg efter et sted, og hent dets anmeldelser.
 
-Et endpoint er en adresse browseren kan kalde, fx GET /api/places/search.
-Routerne gør selv meget lidt. De tjekker input og kalder services og models.
 """
 
 import re

@@ -288,3 +288,46 @@ def test_missing_api_keys_give_a_clear_error():
     app = create_app(make_settings(google_places_api_key=None, anthropic_api_key=None))
     client = TestClient(app, base_url="http://localhost")
     assert "GOOGLE_PLACES_API_KEY" in client.get("/api/places/search?query=x").json()["error"]
+
+
+def test_docs_get_a_looser_csp_but_the_app_keeps_the_strict_one():
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+    from tests.conftest import make_settings
+
+    client = TestClient(create_app(make_settings(enable_docs=True)), base_url="http://localhost")
+    docs = client.get("/docs")
+    assert docs.status_code == 200
+    assert "cdn.jsdelivr.net" in docs.headers["content-security-policy"]
+
+    # Undtagelsen gælder KUN API-oversigten, aldrig selve siden eller API'et.
+    for path in ["/", "/api/restaurants/ikke-et-uuid/reviews", "/docsfoo"]:
+        csp = client.get(path).headers["content-security-policy"]
+        assert "cdn.jsdelivr.net" not in csp
+        assert "unsafe-inline" not in next(p for p in csp.split("; ") if p.startswith("script-src"))
+
+
+def test_docs_disabled_means_no_exception_anywhere(unit_client):
+    assert "cdn.jsdelivr.net" not in unit_client.get("/docs").headers["content-security-policy"]
+
+
+@pytest.mark.parametrize(
+    "google_body, expected_status, expected_in_message",
+    [
+        ('{"error":{"code":400,"message":"The provided Place ID: string is not valid.","status":"INVALID_ARGUMENT"}}', 400, "sted-id"),
+        ('{"error":{"code":400,"message":"API key not valid.","details":[{"reason":"API_KEY_INVALID"}]}}', 502, "API-nøglen"),
+        ('{"error":{"code":400,"message":"noget helt andet"}}', 502, "afviste kaldet (400)"),
+    ],
+)
+def test_google_400_gets_a_message_that_points_at_the_real_cause(unit_client, google_body, expected_status, expected_in_message):
+    import httpx
+
+    from tests.conftest import use_google
+
+    use_google(unit_client, lambda request: httpx.Response(400, text=google_body))
+    response = unit_client.get("/api/places/reviews", params={"placeId": "string"})
+
+    assert response.status_code == expected_status
+    assert expected_in_message in response.json()["error"]
+    assert "INVALID_ARGUMENT" not in response.text and "API_KEY_INVALID" not in response.text  # Googles tekst lækker ikke

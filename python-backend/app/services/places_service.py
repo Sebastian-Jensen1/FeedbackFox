@@ -141,6 +141,16 @@ async def _request_json(client: httpx.AsyncClient, method: str, url: str, **kwar
 
     if response.status_code != 200:
         logger.warning("Google Places svarede %s: %.500s", response.status_code, response.text)
+        if response.status_code == 400:
+            # Google bruger 400 både til en forkert nøgle og et forkert sted-id. Vi
+            # kigger i deres tekst kun for at vælge MELLEM vores egne beskeder.
+            if "API_KEY_INVALID" in response.text:
+                raise UpstreamError("Google afviste API-nøglen. Tjek GOOGLE_PLACES_API_KEY i .env.")
+            if "Place ID" in response.text:
+                raise UpstreamError(
+                    "Google kender ikke det sted-id. Brug et id fra søgningen (/api/places/search).",
+                    400,
+                )
         if response.status_code == 404:
             raise UpstreamError("Stedet blev ikke fundet hos Google.")
         if response.status_code == 429:

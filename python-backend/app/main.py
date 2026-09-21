@@ -21,6 +21,7 @@ from app.core.security import (
     BodySizeLimitMiddleware,
     SecurityHeadersMiddleware,
     build_csp,
+    build_docs_csp,
     inline_script_hashes,
 )
 from app.db import pool as db_pool
@@ -83,6 +84,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(
         SecurityHeadersMiddleware,
         csp=build_csp(inline_script_hashes(settings.public_dir / "index.html")),
+        # /docs og /redoc får en lempeligere CSP, men kun hvis de er tændt.
+        docs_csp=build_docs_csp() if settings.enable_docs else None,
     )
     # Afviser requests hvis Host-headeren ikke er en vi kender (standard: localhost
     # og 127.0.0.1). Det beskytter mod at en fremmed hjemmeside får din browser til

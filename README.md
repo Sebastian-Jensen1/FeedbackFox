@@ -172,7 +172,9 @@ Der er to slags tests. Ingen af dem koster penge eller rører jeres rigtige data
 - **`Host`-tjek** (`ALLOWED_HOSTS`) mod DNS rebinding, og serveren binder kun til
   `127.0.0.1`.
 - **Grænse for request-størrelse** (256 KB), timeouts på alle eksterne kald, og
-  `/docs` er slukket som standard (tænd med `ENABLE_DOCS=1`).
+  `/docs` er slukket som standard (tænd med `ENABLE_DOCS=1`). Er den tændt, får kun
+  `/docs` og `/redoc` en lempeligere CSP, fordi de henter deres design fra et eksternt
+  CDN. Selve siden og API'et beholder den strenge.
 - **Ingen redirects** følges ved kald til Google, så API-nøglen aldrig sendes videre.
 
 **Kendt begrænsning:** der er intet login. Alle der kan nå serveren kan bruge dine
