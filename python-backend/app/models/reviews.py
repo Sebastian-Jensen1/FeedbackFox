@@ -1,7 +1,8 @@
 """Databasen: tabellen `reviews` (anmeldelser).
 
-Al SQL for anmeldelser står her. Filen har også to små funktioner der gør en
-række fra databasen klar til at blive sendt til browseren.
+Al SQL for anmeldelser står her. Alle funktioner der slår op ud fra et id kræver også
+`restaurant_id`, og SQL'en tjekker det. Sådan kan en kunde aldrig nå en anden café's
+anmeldelser, selv hvis et fremmed id bliver sendt til serveren.
 """
 
 from typing import Iterable, Sequence
@@ -83,10 +84,10 @@ async def upsert_many(restaurant_id: UUID, reviews: Sequence) -> list[dict]:
 
 
 async def list_by_restaurant(restaurant_id: UUID) -> list[dict]:
-    """Henter alle anmeldelser for et sted, nyeste først, med det nyeste udkast hæftet på.
+    """Henter alle anmeldelser for en café, nyeste først, med det nyeste udkast hæftet på.
 
     Udkastet hentes i samme forespørgsel (LATERAL JOIN) i stedet for ét kald pr.
-    anmeldelse, for hvert kald til Neon koster ventetid.
+    anmeldelse, for hvert kald til databasen koster ventetid.
     """
     return await fetch_all(
         """
@@ -106,24 +107,33 @@ async def list_by_restaurant(restaurant_id: UUID) -> list[dict]:
     )
 
 
-async def find_by_id(review_id: UUID) -> dict | None:
-    """Henter én anmeldelse ud fra dens id, eller None hvis den ikke findes."""
-    return await fetch_one("SELECT * FROM reviews WHERE id = %s", (review_id,))
+async def find_owned(review_id: UUID, restaurant_id: UUID) -> dict | None:
+    """Henter én anmeldelse, men KUN hvis den hører til denne café. Ellers None."""
+    return await fetch_one(
+        "SELECT * FROM reviews WHERE id = %s AND restaurant_id = %s", (review_id, restaurant_id)
+    )
 
 
-async def find_many(review_ids: Iterable[UUID]) -> dict[UUID, dict]:
-    """Henter flere anmeldelser på én gang. Returnerer en dict: {id: række}."""
-    rows = await fetch_all("SELECT * FROM reviews WHERE id = ANY(%s)", (list(review_ids),))
+async def find_many_owned(review_ids: Iterable[UUID], restaurant_id: UUID) -> dict[UUID, dict]:
+    """Henter flere anmeldelser på én gang, kun dem der hører til caféen. Returnerer {id: række}."""
+    rows = await fetch_all(
+        "SELECT * FROM reviews WHERE id = ANY(%s) AND restaurant_id = %s",
+        (list(review_ids), restaurant_id),
+    )
     return {row["id"]: row for row in rows}
 
 
-async def mark_answered(review_id: UUID) -> dict | None:
+async def mark_answered(review_id: UUID, restaurant_id: UUID) -> dict | None:
     """Sætter en anmeldelse til "besvaret" uden at gemme en svartekst.
 
     Bruges når ejeren allerede har svaret direkte på Google. Returnerer None hvis
-    anmeldelsen ikke findes.
+    anmeldelsen ikke findes hos denne café.
     """
     return await fetch_one(
-        "UPDATE reviews SET status = 'answered', answered_at = now() WHERE id = %s RETURNING *",
-        (review_id,),
+        """
+        UPDATE reviews SET status = 'answered', answered_at = now()
+         WHERE id = %s AND restaurant_id = %s
+        RETURNING *
+        """,
+        (review_id, restaurant_id),
     )

@@ -7,6 +7,7 @@ mangle felter eller have den forkerte type, uden at programmet må gå i stykker
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -20,8 +21,17 @@ logger = logging.getLogger("review_assistant")
 
 PLACES_BASE_URL = "https://places.googleapis.com/v1"
 
+# Et Google place_id består kun af bogstaver, tal, "_" og "-". Alt andet afvises, før det
+# kommer i nærheden af en adresse vi bygger til Google.
+PLACE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,300}$")
+
 # Google sender højst 5 anmeldelser. Loftet er kun en sikring, hvis det ændrer sig.
 MAX_REVIEWS = 10
+
+
+def is_valid_place_id(place_id: str) -> bool:
+    """Ser dette ud som et rigtigt Google place_id? (Tjekker kun tegnene, ikke om stedet findes.)"""
+    return bool(PLACE_ID_PATTERN.fullmatch(place_id))
 
 
 @dataclass(frozen=True)
@@ -148,7 +158,8 @@ async def _request_json(client: httpx.AsyncClient, method: str, url: str, **kwar
                 raise UpstreamError("Google afviste API-nøglen. Tjek GOOGLE_PLACES_API_KEY i .env.")
             if "Place ID" in response.text:
                 raise UpstreamError(
-                    "Google kender ikke det sted-id. Brug et id fra søgningen (/api/places/search).",
+                    "Google kender ikke det sted-id. Tjek at det er kopieret rigtigt "
+                    "(find det med: uv run python -m app.admin search).",
                     400,
                 )
         if response.status_code == 404:

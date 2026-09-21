@@ -1,8 +1,9 @@
 """Sikkerhed omkring hele appen.
 
-To ting sker for ALLE requests:
+Tre ting sker for ALLE requests:
   1. Der tilføjes sikkerhedsheaders til svaret (SecurityHeadersMiddleware).
   2. Requests med for stor body afvises (BodySizeLimitMiddleware).
+  3. Ændrende kald fra en fremmed hjemmeside afvises (OriginCheckMiddleware).
 
 En "middleware" er kode der sidder mellem browseren og vores routes og ser alle
 requests og svar igennem.
@@ -12,6 +13,7 @@ import base64
 import hashlib
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -123,6 +125,49 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+class OriginCheckMiddleware:
+    """Afviser ændrende kald (POST osv.) der kommer fra en ANDEN hjemmeside end vores egen.
+
+    Uden det kunne en fremmed side få en logget-ind brugers browser til at sende kald til
+    os ("CSRF"), og browseren ville selv lægge login-cookien på. Browsere skriver altid
+    hvilken side et kald kommer fra i headeren Origin, så vi sammenligner den med vores egen
+    adresse. Cookien er desuden SameSite=Lax, som er en anden, uafhængig sikring.
+    """
+
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Kører for hver request. Afviser med 403 hvis Origin ikke passer til Host."""
+        if scope["type"] == "http" and scope["method"] not in self.SAFE_METHODS:
+            headers = dict(scope["headers"])
+            origin = headers.get(b"origin")
+            # Origin mangler hos programmer som curl (og hos en side der kalder sig selv i
+            # ældre browsere). Så er der ingen fremmed side involveret, og vi lader den passe.
+            if origin is not None and urlparse(origin.decode("latin-1")).netloc.encode() != headers.get(b"host"):
+                await self._reject(send)
+                return
+        await self.app(scope, receive, send)
+
+    @staticmethod
+    async def _reject(send: Send) -> None:
+        """Sender svaret 403 "Forespørgslen er afvist"."""
+        body = '{"error":"Forespørgslen kom fra en anden side og blev afvist."}'.encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 403,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 class _BodyTooLarge(Exception):

@@ -211,7 +211,7 @@ def test_csp_does_not_allow_inline_script_or_framing():
 
 
 def test_security_headers_on_api_and_frontend(unit_client):
-    api = unit_client.get("/api/restaurants/ikke-et-uuid/reviews")
+    api = unit_client.get("/api/reviews")  # 401 uden login, men headers sættes alligevel
     assert api.headers["x-content-type-options"] == "nosniff"
     assert api.headers["cache-control"] == "no-store"
     assert "script-src" in api.headers["content-security-policy"]
@@ -224,7 +224,7 @@ def test_security_headers_on_api_and_frontend(unit_client):
 
 def test_unknown_host_header_is_rejected(unit_client):
     # DNS rebinding: en ondsindet side der peger sit domæne på 127.0.0.1.
-    response = unit_client.get("/api/restaurants", headers={"Host": "evil.example.com"})
+    response = unit_client.get("/api/reviews", headers={"Host": "evil.example.com"})
     assert response.status_code == 400
 
 
@@ -240,54 +240,10 @@ def test_docs_are_off_by_default(unit_client):
 
 
 def test_errors_use_the_shape_the_frontend_reads(unit_client):
-    for path in ["/api/restaurants/ikke-et-uuid/reviews", "/api/findes-ikke"]:
+    for path in ["/api/reviews", "/api/findes-ikke"]:
         body = unit_client.get(path).json()
         assert list(body) == ["error"]
         assert isinstance(body["error"], str)
-
-
-def test_validation_error_never_echoes_what_was_sent(unit_client):
-    response = unit_client.post(
-        "/api/reviews/00000000-0000-0000-0000-000000000000/send",
-        json={"finalText": 12345, "hemmelig": "SKAL-IKKE-VISES"},
-    )
-    assert response.status_code == 400
-    assert "SKAL-IKKE-VISES" not in response.text
-    assert "12345" not in response.text
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/places/reviews?placeId=../../v1/places:searchText",
-        "/api/places/reviews?placeId=abc/def",
-        "/api/places/reviews?placeId=abc%3Fkey%3D1",
-        "/api/places/reviews?placeId=" + "a" * 301,
-    ],
-)
-def test_place_id_that_could_alter_the_google_url_is_rejected(unit_client, path):
-    assert unit_client.get(path).status_code == 400
-
-
-def test_generate_limits(unit_client):
-    zero = "00000000-0000-0000-0000-000000000000"
-    too_many = {"businessName": "x", "reviews": [{"id": zero}] * 26}
-    assert unit_client.post("/api/generate", json=too_many).status_code == 400
-    assert unit_client.post("/api/generate", json={"businessName": "x", "reviews": []}).status_code == 400
-    assert unit_client.post("/api/generate", json={"businessName": "  ", "reviews": [{"id": zero}]}).status_code == 400
-    bad_id = {"businessName": "x", "reviews": [{"id": "1' OR '1'='1"}]}
-    assert unit_client.post("/api/generate", json=bad_id).status_code == 400
-
-
-def test_missing_api_keys_give_a_clear_error():
-    from fastapi.testclient import TestClient
-
-    from app.main import create_app
-    from tests.conftest import make_settings
-
-    app = create_app(make_settings(google_places_api_key=None, anthropic_api_key=None))
-    client = TestClient(app, base_url="http://localhost")
-    assert "GOOGLE_PLACES_API_KEY" in client.get("/api/places/search?query=x").json()["error"]
 
 
 def test_docs_get_a_looser_csp_but_the_app_keeps_the_strict_one():
@@ -302,7 +258,7 @@ def test_docs_get_a_looser_csp_but_the_app_keeps_the_strict_one():
     assert "cdn.jsdelivr.net" in docs.headers["content-security-policy"]
 
     # Undtagelsen gælder KUN API-oversigten, aldrig selve siden eller API'et.
-    for path in ["/", "/api/restaurants/ikke-et-uuid/reviews", "/docsfoo"]:
+    for path in ["/", "/api/reviews", "/docsfoo"]:
         csp = client.get(path).headers["content-security-policy"]
         assert "cdn.jsdelivr.net" not in csp
         assert "unsafe-inline" not in next(p for p in csp.split("; ") if p.startswith("script-src"))
@@ -310,6 +266,9 @@ def test_docs_get_a_looser_csp_but_the_app_keeps_the_strict_one():
 
 def test_docs_disabled_means_no_exception_anywhere(unit_client):
     assert "cdn.jsdelivr.net" not in unit_client.get("/docs").headers["content-security-policy"]
+
+
+# ---- Google-fejl bliver til beskeder der peger på den rigtige årsag ---------------
 
 
 @pytest.mark.parametrize(
@@ -320,14 +279,176 @@ def test_docs_disabled_means_no_exception_anywhere(unit_client):
         ('{"error":{"code":400,"message":"noget helt andet"}}', 502, "afviste kaldet (400)"),
     ],
 )
-def test_google_400_gets_a_message_that_points_at_the_real_cause(unit_client, google_body, expected_status, expected_in_message):
+async def test_google_400_gets_a_message_that_points_at_the_real_cause(google_body, expected_status, expected_in_message):
     import httpx
 
-    from tests.conftest import use_google
+    client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(400, text=google_body)))
+    with pytest.raises(UpstreamError) as caught:
+        await places_service.get_place_details(client, "string", "test-key")
 
-    use_google(unit_client, lambda request: httpx.Response(400, text=google_body))
-    response = unit_client.get("/api/places/reviews", params={"placeId": "string"})
+    assert caught.value.status_code == expected_status
+    assert expected_in_message in caught.value.message
+    assert "INVALID_ARGUMENT" not in caught.value.message and "API_KEY_INVALID" not in caught.value.message
 
-    assert response.status_code == expected_status
-    assert expected_in_message in response.json()["error"]
-    assert "INVALID_ARGUMENT" not in response.text and "API_KEY_INVALID" not in response.text  # Googles tekst lækker ikke
+
+@pytest.mark.parametrize("place_id", ["ChIJWXnV1klSUkYRc5wsBtQQQmQ", "a", "abc_DEF-123"])
+def test_valid_place_ids(place_id):
+    assert places_service.is_valid_place_id(place_id)
+
+
+@pytest.mark.parametrize("place_id", ["", "../../v1/places:searchText", "abc/def", "abc?key=1", "med mellemrum", "a" * 301])
+def test_place_id_that_could_alter_the_google_url_is_rejected(place_id):
+    assert not places_service.is_valid_place_id(place_id)
+
+
+# ---- begrænsning af gætte-forsøg -------------------------------------------------
+
+
+class FakeClock:
+    """Et ur vi selv styrer, så testene ikke skal vente rigtigt."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_rate_limiter_allows_up_to_the_limit_then_blocks():
+    from app.core.rate_limit import RateLimiter
+
+    limiter = RateLimiter(3, 60, clock=FakeClock())
+    for _ in range(3):
+        assert limiter.check("a") is None
+        limiter.record("a")
+    assert limiter.check("a") is not None
+    assert limiter.check("andre") is None  # en anden nøgle er upåvirket
+
+
+def test_rate_limiter_tells_how_long_to_wait_and_then_lets_go():
+    from app.core.rate_limit import RateLimiter
+
+    clock = FakeClock()
+    limiter = RateLimiter(2, 60, clock=clock)
+    limiter.record("a")
+    clock.now += 10
+    limiter.record("a")
+
+    assert limiter.check("a") == 50  # den ældste udløber om 50 sekunder
+    clock.now += 50
+    assert limiter.check("a") is None
+
+
+def test_rate_limiter_counts_cost_and_can_be_reset():
+    from app.core.rate_limit import RateLimiter
+
+    limiter = RateLimiter(10, 60, clock=FakeClock())
+    limiter.record("a", 8)
+    assert limiter.check("a", 2) is None
+    assert limiter.check("a", 3) is not None
+    limiter.reset("a")
+    assert limiter.check("a", 10) is None
+
+
+def test_rate_limiter_wait_is_described_in_danish():
+    from app.core.rate_limit import describe_wait
+
+    assert describe_wait(45) == "45 sekunder"
+    assert describe_wait(600) == "10 minutter"
+
+
+# ---- adgangskoder og sessions ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "password, ok",
+    [
+        ("en-god-adgangskode-42", True),
+        ("kort", False),
+        ("aaaaaaaaaaaa", False),  # for få forskellige tegn
+        (" starter-med-mellemrum", False),
+        ("x" * 129, False),
+    ],
+)
+def test_password_rules(password, ok):
+    from app.services.auth_service import validate_new_password
+
+    assert (validate_new_password(password) is None) == ok
+
+
+def test_generated_passwords_are_readable_random_and_pass_the_rules():
+    from app.services.auth_service import generate_password, validate_new_password
+
+    passwords = {generate_password() for _ in range(200)}
+    assert len(passwords) == 200  # ingen dubletter
+    for password in list(passwords)[:20]:
+        assert validate_new_password(password) is None
+        assert not set(password) & set("0OIl1")  # ingen tegn der ligner hinanden
+
+
+async def test_password_is_hashed_verified_and_wrong_ones_rejected():
+    from app.services.auth_service import hash_password, verify_password
+
+    stored = await hash_password("en-god-adgangskode-42")
+    assert stored.startswith("$argon2id$")
+    assert "en-god-adgangskode" not in stored
+    assert await verify_password("en-god-adgangskode-42", stored)
+    assert not await verify_password("en-anden-adgangskode", stored)
+    assert not await verify_password("noget", "ikke-en-hash")  # ødelagt hash giver nej, ikke en fejl
+
+
+def test_session_tokens_are_random_and_only_a_fingerprint_is_kept():
+    from app.services.auth_service import hash_token, new_session_token
+
+    a, b = new_session_token(), new_session_token()
+    assert a != b and len(a) >= 40
+    assert hash_token(a) == hash_token(a)
+    assert hash_token(a) != a and a not in hash_token(a)
+
+
+# ---- login kræves overalt, og fremmede sider afvises -------------------------------
+
+ZERO = "00000000-0000-0000-0000-000000000000"
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("GET", "/api/reviews"),
+        ("POST", "/api/reviews/refresh"),
+        ("POST", f"/api/reviews/{ZERO}/send"),
+        ("POST", f"/api/reviews/{ZERO}/answered"),
+        ("POST", "/api/generate"),
+        ("GET", "/api/auth/me"),
+        ("POST", "/api/auth/password"),
+    ],
+)
+def test_every_data_endpoint_requires_login(unit_client, method, path):
+    response = unit_client.request(method, path)
+    assert response.status_code == 401
+    assert response.json() == {"error": "Du skal logge ind."}
+
+
+def test_prototype_endpoints_are_gone(unit_client):
+    # Søgning og "alle caféer" hører ikke hjemme hos en kunde.
+    for path in ["/api/places/search", "/api/places/reviews", "/api/restaurants"]:
+        assert unit_client.get(path).status_code == 404
+
+
+def test_logout_without_being_logged_in_is_harmless(unit_client):
+    assert unit_client.post("/api/auth/logout").json() == {"ok": True}
+
+
+@pytest.mark.parametrize("origin", ["https://evil.example", "http://localhost.evil.example", "null", "http://localhost:9999"])
+def test_state_changing_requests_from_other_sites_are_rejected(unit_client, origin):
+    response = unit_client.post("/api/reviews/refresh", headers={"Origin": origin})
+    assert response.status_code == 403
+
+
+def test_requests_from_our_own_site_pass_the_origin_check(unit_client):
+    response = unit_client.post("/api/reviews/refresh", headers={"Origin": "http://localhost"})
+    assert response.status_code == 401  # kom forbi Origin-tjekket, men er ikke logget ind
+
+
+def test_reading_data_is_never_blocked_by_the_origin_check(unit_client):
+    assert unit_client.get("/api/reviews", headers={"Origin": "https://evil.example"}).status_code == 401

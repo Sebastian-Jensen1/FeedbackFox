@@ -34,6 +34,7 @@ def make_settings(**overrides) -> Settings:
         claude_model="test-model",
         allowed_hosts=("localhost",),
         enable_docs=False,
+        cookie_secure=False,
         public_dir=PUBLIC_DIR,
     )
     values.update(overrides)
@@ -117,15 +118,93 @@ def client(isolated_db_url, migration_result):
 
 @pytest.fixture(autouse=True)
 def clean_tables(request):
-    """Tømmer tabellerne før hver databasetest, så testene ikke påvirker hinanden."""
+    """Rydder op før hver databasetest, så testene ikke påvirker hinanden.
+
+    Tømmer tabellerne, glemmer login-cookies og nulstiller tællerne for gætte-forsøg.
+    """
     if "client" not in request.fixturenames:
         yield
         return
     url = request.getfixturevalue("isolated_db_url")
     request.getfixturevalue("migration_result")  # tabellerne skal findes før de tømmes
+    test_client = request.getfixturevalue("client")
     with psycopg.connect(db_pool.build_conninfo(url), autocommit=True) as conn:
-        conn.execute("TRUNCATE restaurants, reviews, replies CASCADE")
+        conn.execute("TRUNCATE restaurants, reviews, replies, users, sessions CASCADE")
+    test_client.cookies.clear()
+    test_client.app.state.limits.reset_all()
     yield
+
+
+# ---- Hjælpere til databasetestene ---------------------------------------------
+
+PASSWORD = "en-god-adgangskode-42"
+
+
+def db_rows(client: TestClient, query: str, params=()):
+    """Kører en SELECT direkte mod testdatabasen og giver rækkerne (til at kontrollere hvad der er gemt)."""
+    with psycopg.connect(db_pool.build_conninfo(client.app.state.settings.database_url)) as conn:
+        return conn.execute(query, params).fetchall()
+
+
+def db_execute(client: TestClient, query: str, params=()) -> None:
+    """Kører en ændring direkte mod testdatabasen (fx for at flytte et tidspunkt tilbage i tiden)."""
+    with psycopg.connect(db_pool.build_conninfo(client.app.state.settings.database_url), autocommit=True) as conn:
+        conn.execute(query, params)
+
+
+def make_customer(
+    client: TestClient,
+    *,
+    email: str = "ejer@test.dk",
+    name: str = "Test Café",
+    place_id: str | None = "ChIJtest",
+    password: str = PASSWORD,
+) -> dict:
+    """Opretter en café og en bruger til den direkte i databasen. Giver deres oplysninger tilbage."""
+    from app.models import restaurants, users
+    from app.services import auth_service
+
+    async def create():
+        if place_id:
+            restaurant = await restaurants.upsert_by_place_id(
+                google_place_id=place_id, name=name, business_type="café",
+                address="Testvej 1", google_rating=None, google_rating_count=None,
+            )
+        else:  # en café der ikke er koblet til Google
+            from app.db.pool import fetch_one_required
+            restaurant = await fetch_one_required(
+                "INSERT INTO restaurants (name, business_type) VALUES (%s, 'café') RETURNING *", (name,)
+            )
+        user = await users.create(
+            email=email, password_hash=await auth_service.hash_password(password), restaurant_id=restaurant["id"]
+        )
+        return {
+            "email": email, "password": password,
+            "restaurant_id": restaurant["id"], "user_id": user["id"], "place_id": place_id,
+        }
+
+    return client.portal.call(create)
+
+
+def login(client: TestClient, customer: dict, password: str | None = None):
+    """Logger en kunde ind (cookien gemmes i testklienten). Giver serverens svar tilbage."""
+    return client.post(
+        "/api/auth/login",
+        json={"email": customer["email"], "password": password if password is not None else customer["password"]},
+    )
+
+
+def logged_in(client: TestClient, **kwargs) -> dict:
+    """Opretter en kunde og logger dem ind. Giver kundens oplysninger tilbage."""
+    customer = make_customer(client, **kwargs)
+    response = login(client, customer)
+    assert response.status_code == 200, response.text
+    return customer
+
+
+def allow_refresh_now(client: TestClient) -> None:
+    """Fjerner pausen mellem to hentninger fra Google, så en test kan hente flere gange."""
+    db_execute(client, "UPDATE restaurants SET reviews_fetched_at = NULL")
 
 
 # ---- Falske eksterne tjenester ------------------------------------------------
@@ -203,3 +282,34 @@ def use_claude(client: TestClient, fake: FakeClaude) -> FakeClaude:
     """Lader appen bruge den givne falske Claude i stedet for den rigtige."""
     client.app.state.anthropic = fake
     return fake
+
+
+def token_of(response) -> str:
+    """Læser login-nøglen (cookien) ud af et svar fra login."""
+    from http.cookies import SimpleCookie
+
+    cookie = SimpleCookie()
+    cookie.load(response.headers["set-cookie"])
+    return cookie["session"].value
+
+
+def with_token(client: TestClient, method: str, path: str, token: str, **kwargs):
+    """Kalder API'et med en bestemt login-nøgle, uanset hvad testklientens egen cookie-pose indeholder."""
+    headers = {**kwargs.pop("headers", {}), "Cookie": f"session={token}"}
+    return client.request(method, path, headers=headers, **kwargs)
+
+
+def as_user(client: TestClient, customer: dict) -> None:
+    """Skifter testklienten til at være denne kunde (glemmer den forrige og logger ind)."""
+    client.cookies.clear()
+    assert login(client, customer).status_code == 200
+
+
+def place(place_id: str, name: str) -> dict:
+    """Et Google-svar for et sted med to anmeldelser, med id'er der er unikke for stedet."""
+    return {
+        **PLACE,
+        "id": place_id,
+        "displayName": {"text": name},
+        "reviews": [{**r, "name": f"places/{place_id}/reviews/r{i}"} for i, r in enumerate(PLACE["reviews"], 1)],
+    }

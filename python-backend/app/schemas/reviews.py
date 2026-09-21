@@ -1,4 +1,4 @@
-"""Skemaer for restauranter og anmeldelser: hvad API'et svarer med, og hvad "Send" modtager.
+"""Skemaer for anmeldelser: hvad API'et svarer med, og hvad "Send" modtager.
 
 Svarskemaerne bestemmer præcis hvilke felter der forlader serveren. Et felt der ikke
 står her, bliver aldrig sendt til browseren.
@@ -29,38 +29,18 @@ class ClientReview(CamelModel):
     draft: str
 
 
-class RestaurantSummary(CamelModel):
-    """Et sted i listen over gemte steder."""
-
-    id: UUID
-    name: str
-    business_type: str
-    address: str
-    default_tone: str
-
-
-class RestaurantListResponse(CamelModel):
-    """Svar på GET /api/restaurants."""
-
-    restaurants: list[RestaurantSummary]
-
-
-class RestaurantReviewsResponse(CamelModel):
-    """Svar på GET /api/restaurants/{id}/reviews: stedet og alle dets anmeldelser."""
+class DashboardResponse(CamelModel):
+    """Alt frontenden skal bruge for den indloggede brugers café: oplysninger og anmeldelser."""
 
     restaurant_id: UUID
     business_name: str
     business_type: str
     default_tone: str
-    reviews: list[ClientReview]
-
-
-class PlaceReviewsResponse(RestaurantReviewsResponse):
-    """Svar på GET /api/places/reviews: som ovenfor, plus Googles score og adresse."""
-
     address: str
     rating: float | None
     user_rating_count: int | None
+    reviews_fetched_at: datetime | None
+    reviews: list[ClientReview]
 
 
 class SendReplyRequest(CamelModel):

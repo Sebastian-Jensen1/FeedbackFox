@@ -27,13 +27,26 @@ async def insert_draft(
     )
 
 
-async def mark_sent(review_id: UUID, final_text: str) -> dict:
+async def mark_sent(review_id: UUID, restaurant_id: UUID, final_text: str) -> dict | None:
     """Gemmer det svar ejeren sendte, og markerer anmeldelsen som besvaret.
 
-    Begge dele sker i samme transaktion, så det ene aldrig sker uden det andet.
+    Alt sker i samme transaktion, så det ene aldrig sker uden det andet. Hører
+    anmeldelsen ikke til denne café, sker der INTET, og None returneres.
     """
     async with transaction() as conn:
-        # Trin 1: læg den endelige tekst på det NYESTE udkast. Ældre står urørt.
+        # Trin 1: sæt anmeldelsen til besvaret, men kun hvis den hører til caféen.
+        cursor = await conn.execute(
+            """
+            UPDATE reviews SET status = 'answered', answered_at = now()
+             WHERE id = %s AND restaurant_id = %s
+            RETURNING id
+            """,
+            (review_id, restaurant_id),
+        )
+        if await cursor.fetchone() is None:
+            return None
+
+        # Trin 2: læg den endelige tekst på det NYESTE udkast. Ældre står urørt.
         cursor = await conn.execute(
             """
             UPDATE replies
@@ -47,7 +60,7 @@ async def mark_sent(review_id: UUID, final_text: str) -> dict:
         )
         reply = await cursor.fetchone()
 
-        # Trin 2: fandt vi intet udkast, har ejeren skrevet svaret selv. Så opretter
+        # Trin 3: fandt vi intet udkast, har ejeren skrevet svaret selv. Så opretter
         # vi en række med model = NULL, så man kan se at det ikke kom fra Claude.
         if reply is None:
             cursor = await conn.execute(
@@ -59,12 +72,6 @@ async def mark_sent(review_id: UUID, final_text: str) -> dict:
                 (review_id, final_text, final_text),
             )
             reply = await cursor.fetchone()
-
-        # Trin 3: sæt selve anmeldelsen til "besvaret".
-        await conn.execute(
-            "UPDATE reviews SET status = 'answered', answered_at = now() WHERE id = %s",
-            (review_id,),
-        )
         return reply
 
 
