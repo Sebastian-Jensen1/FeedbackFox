@@ -1,6 +1,6 @@
 """Selve appen. Her samles alle delene til én FastAPI-app.
 
-- routers/  = de adresser browseren kan kalde
+- routers/  = de adresser browseren kan kalde (login, anmeldelser, udkast)
 - core/     = sikkerhed og fejlhåndtering
 - db/       = forbindelsen til databasen
 
@@ -17,15 +17,17 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import Settings, load_settings
 from app.core.errors import register_error_handlers
+from app.core.rate_limit import Limits
 from app.core.security import (
     BodySizeLimitMiddleware,
+    OriginCheckMiddleware,
     SecurityHeadersMiddleware,
     build_csp,
     build_docs_csp,
     inline_script_hashes,
 )
 from app.db import pool as db_pool
-from app.routers import generate, places, reviews
+from app.routers import auth, generate, reviews
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -67,11 +69,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     docs = {} if settings.enable_docs else {"docs_url": None, "redoc_url": None, "openapi_url": None}
     app = FastAPI(title="Review Assistant", lifespan=lifespan, **docs)
     app.state.settings = settings
+    app.state.limits = Limits()  # tællere til at begrænse gætte-forsøg og udkast
 
     register_error_handlers(app)
 
+    app.include_router(auth.router, prefix="/api")
     app.include_router(generate.router, prefix="/api")
-    app.include_router(places.router, prefix="/api")
     app.include_router(reviews.router, prefix="/api")
 
     # Server siden (index.html). Kun mappen public/ er tilgængelig, ikke koden eller .env.
@@ -81,6 +84,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Middleware kører i omvendt rækkefølge af hvordan de tilføjes: den SIDSTE
     # tilføjede møder requesten FØRST.
     app.add_middleware(BodySizeLimitMiddleware)
+    # Afviser ændrende kald der kommer fra en anden hjemmeside end vores egen (CSRF).
+    app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(
         SecurityHeadersMiddleware,
         csp=build_csp(inline_script_hashes(settings.public_dir / "index.html")),

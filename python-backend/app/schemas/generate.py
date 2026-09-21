@@ -18,21 +18,21 @@ MAX_REVIEWS_PER_REQUEST = 25
 class GenerateReview(CamelModel):
     """Én anmeldelse der skal have et udkast. Kun id'et bruges.
 
-    Frontenden sender også navn, stjerner og tekst, men de ignoreres bevidst.
-    Anmeldelsens indhold læses i stedet fra databasen, så ingen kan få serveren til
-    at sende opdigtet tekst videre til Claude.
+    Alt andet (navn, stjerner, tekst) læses fra databasen, så ingen kan få serveren til at
+    sende opdigtet tekst videre til Claude under en anmeldelses navn.
     """
 
     id: UUID
 
 
 class GenerateRequest(CamelModel):
-    """Det browseren sender til /api/generate."""
+    """Det browseren sender til /api/generate.
 
-    business_name: str = Field(min_length=1, max_length=200)
-    business_type: str = Field(default="", max_length=100)
+    Der er bevidst hverken café-navn eller café-id her. Hvilken café det gælder, ved serveren
+    ud fra login, og navnet står i databasen.
+    """
+
     tone: str = Field(default="", max_length=100)
-    restaurant_id: UUID | None = None  # bruges til at huske tonen
     reviews: list[GenerateReview] = Field(min_length=1, max_length=MAX_REVIEWS_PER_REQUEST)
 
 

@@ -35,6 +35,9 @@ class Settings:
     allowed_hosts: tuple[str, ...]  # hvilke adresser serveren svarer på
     enable_docs: bool  # skal /docs være tændt?
     public_dir: Path  # mappen med index.html
+    # Skal login-cookien kun sendes over HTTPS? Skal være True når siden ligger på et
+    # rigtigt domæne. Lokalt (http://localhost) skal den være False, ellers virker login ikke.
+    cookie_secure: bool
 
 
 def _clean(value: str | None) -> str | None:
@@ -66,4 +69,5 @@ def load_settings() -> Settings:
         allowed_hosts=tuple(h.strip() for h in hosts.split(",") if h.strip()),
         enable_docs=os.getenv("ENABLE_DOCS") == "1",
         public_dir=REPO_DIR / "public",
+        cookie_secure=os.getenv("COOKIE_SECURE") == "1",
     )
