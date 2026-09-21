@@ -6,13 +6,23 @@ gennemgå/redigere udkastet, og trykke "Send". Dette er en **MVP til at teste
 konceptet og flowet** — "Send til Google" kopierer til udklipsholder i stedet
 for at poste direkte (se afsnittet om Google Business Profile API nedenfor).
 
+Backenden er skrevet i Python med [FastAPI](https://fastapi.tiangolo.com/), og data
+gemmes i PostgreSQL på Neon. Frontenden er én HTML-fil (`public/index.html`), som
+backenden selv serverer.
+
 ## Sådan kører du den i VS Code
 
+Du skal bruge [uv](https://docs.astral.sh/uv/) (Python-pakkehåndtering; på Mac:
+`brew install uv`). Python 3.14 hentes af uv, hvis du ikke har den.
+
 1. Åbn mappen `review-assistant` i VS Code (`File > Open Folder`)
-2. Åbn integreret terminal (`Ctrl+\`` / `Cmd+\``)
+2. Åbn integreret terminal (`Ctrl+\`` / `Cmd+\``) og gå ind i backend-mappen:
+   ```
+   cd python-backend
+   ```
 3. Installer afhængigheder:
    ```
-   npm install
+   uv sync
    ```
 4. Kopiér `.env.example` til `.env`:
    ```
@@ -22,9 +32,12 @@ for at poste direkte (se afsnittet om Google Business Profile API nedenfor).
 6. Sæt databasen op (se afsnittet nedenfor)
 7. Start serveren:
    ```
-   npm start
+   uv run python -m app
    ```
 8. Åbn http://localhost:3000 i browseren
+
+Serveren lytter kun på din egen maskine (`127.0.0.1`), så den kan ikke nås fra andre
+computere. Det er med vilje, se "Sikkerhed" nedenfor.
 
 ## Database (PostgreSQL på Neon)
 
@@ -35,9 +48,9 @@ begge arbejder mod de samme data uden at nogens computer skal være tændt.
 
 1. Få forbindelsesstrengen af den anden — den står **ikke** i Git, fordi den
    indeholder adgangskoden til databasen
-2. Sæt den ind som `DATABASE_URL` i din `.env`
-3. `npm run migrate` — opretter de tabeller du eventuelt mangler
-4. `npm start`
+2. Sæt den ind som `DATABASE_URL` i `python-backend/.env` (uden mellemrum omkring `=`)
+3. `uv run python -m app.db.migrate` — opretter de tabeller du eventuelt mangler
+4. `uv run python -m app`
 
 ### Første gang databasen oprettes
 
@@ -48,17 +61,17 @@ begge arbejder mod de samme data uden at nogens computer skal være tændt.
    ```
    postgresql://bruger:adgangskode@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require
    ```
-4. Sæt den ind i `.env` som `DATABASE_URL`, men ret `sslmode=require` til
-   `sslmode=verify-full` — se `.env.example` for hvorfor
-5. Kør `npm run migrate`
+4. Sæt den ind i `python-backend/.env` som `DATABASE_URL`, men ret `sslmode=require`
+   til `sslmode=verify-full` — se `.env.example` for hvorfor
+5. Kør `uv run python -m app.db.migrate`
 
 Databasen hedder `neondb`. Det er med vilje: det er den Neon selv opretter, og
 vores tabeller ligger inde i den. Der skal ikke oprettes en `feedbackfox`.
 
 Neons onboarding foreslår også `neon skills`, `neon mcp`, `neon config init` og
-`neon deploy`. Det er deres infrastructure-as-code-værktøj (`neon.ts`) og
-agent-integrationer — vi bruger ingen af delene. Projektet snakker helt
-almindelig Postgres via `pg`, så der skal kun bruges en forbindelsesstreng.
+`neon deploy`. Det er deres infrastructure-as-code-værktøj og agent-integrationer —
+vi bruger ingen af delene. Projektet snakker helt almindelig Postgres via
+`psycopg`, så der skal kun bruges en forbindelsesstreng.
 
 ### Fælles database — hvad det betyder i praksis
 
@@ -69,7 +82,7 @@ almindelig Postgres via `pg`, så der skal kun bruges en forbindelsesstreng.
   data I kan arbejde i uden at ødelægge noget
 - Neon lukker databasen ned når den ikke bruges, og starter den igen ved næste
   forespørgsel. Første kald efter en pause tager derfor et øjeblik. Det er ikke
-  en fejl, og `connectionTimeoutMillis` i `pool.js` er sat højt nok til det
+  en fejl, og ventetiden i `app/db/pool.py` er sat høj nok til det
 
 ### Del aldrig forbindelsesstrengen i Git
 
@@ -78,22 +91,22 @@ almindelig Postgres via `pg`, så der skal kun bruges en forbindelsesstreng.
 ligger offentligt — og hvis den først er havnet i en commit, så skift
 adgangskoden i Neon med det samme frem for bare at slette linjen.
 
-`pool.js` kræver desuden et gyldigt certifikat for alt der ikke er localhost.
-Det er bevidst ikke overladt til `sslmode` i forbindelsesstrengen: en streng med
-`sslmode=no-verify` ville ellers slå tjekket fra, uden at man kunne se det nogen
-steder i koden. Får du en certifikatfejl, så sig til frem for at slå
+`app/db/pool.py` kræver desuden et gyldigt certifikat for alt der ikke er
+localhost. Det er bevidst ikke overladt til `sslmode` i forbindelsesstrengen: en
+streng med `sslmode=disable` ville ellers slå tjekket fra, uden at man kunne se det
+nogen steder i koden. Får du en certifikatfejl, så sig til frem for at slå
 verifikationen fra — så er der noget galt der er værd at kigge på.
 
 ### Migrationer
 
 ```
-npm run migrate
+uv run python -m app.db.migrate
 ```
 
 Kommandoen er idempotent: den holder styr på hvad der er kørt i tabellen
 `schema_migrations` og springer det over næste gang.
 
-Skemaændringer laves som en **ny** fil i `src/db/migrations/` (fx
+Skemaændringer laves som en **ny** fil i `python-backend/app/db/migrations/` (fx
 `002_tilføj_kolonne.sql`). Ret aldrig i en migration der allerede er kørt — den
 er kørt på den fælles database, og en rettelse i filen bliver aldrig udført der.
 
@@ -124,6 +137,49 @@ Nyttige kommandoer: `\dt` (vis tabeller), `\d reviews` (vis kolonner),
 5. Klik "Send til Google" — kopierer svaret til udklipsholderen og flytter anmeldelsen til "Besvarede"-fanen
 6. Har en anmeldelse allerede fået svar direkte på Google (fx før I brugte dette værktøj), sæt flueben ved den og klik "Markér som besvaret" for at flytte den til "Besvarede" uden at generere et nyt svar
 
+## Tests
+
+Kør dem fra `python-backend/`:
+
+```
+uv run pytest
+```
+
+Der er to slags tests. Ingen af dem koster penge eller rører jeres rigtige data:
+
+- **Uden database** (`tests/test_unit.py`): validering, sikkerhedsheaders, prompten,
+  TLS-opsætningen og fejlhåndtering.
+- **Med database** (`tests/test_api_db.py`): hele flowet fra Google-hentning til
+  "Send". De kører i et midlertidigt schema med tilfældigt navn i Neon, som oprettes
+  før og slettes efter. Google og Claude er falske. Mangler `DATABASE_URL`, springes
+  de over.
+
+## Sikkerhed
+
+- **Al input valideres** med typer og grænser (fx højst 25 anmeldelser pr. kald,
+  svar højst 4096 tegn, id'er skal være UUID'er). Fejl svarer med de feltnavne der er
+  galt, aldrig med det klienten sendte.
+- **Kun parametriseret SQL.** Ingen værdier bygges ind i SQL-tekst.
+- **Anmeldelsernes tekst læses fra databasen**, ikke fra det browseren sender med
+  til `/api/generate`, og den står i tags i prompten, som Claude får besked på at
+  behandle som data (beskytter mod "prompt injection" fra anmeldere).
+- **Fejl fra Google, Claude og databasen sendes ikke videre til browseren.** De
+  logges på serveren; brugeren får en tekst vi selv har skrevet.
+- **Anmeldelser vises som ren tekst.** Frontenden renser alt fra Google og Claude,
+  før det sættes ind i siden, så en anmeldelse ikke kan køre kode i browseren
+  ("XSS"). Som ekstra lag tillader en CSP kun det indlejrede script i `index.html`
+  (udpeget ved dets hash), siden kan ikke lægges i en iframe, og API-svar caches ikke.
+- **`Host`-tjek** (`ALLOWED_HOSTS`) mod DNS rebinding, og serveren binder kun til
+  `127.0.0.1`.
+- **Grænse for request-størrelse** (256 KB), timeouts på alle eksterne kald, og
+  `/docs` er slukket som standard (tænd med `ENABLE_DOCS=1`).
+- **Ingen redirects** følges ved kald til Google, så API-nøglen aldrig sendes videre.
+
+**Kendt begrænsning:** der er intet login. Alle der kan nå serveren kan bruge dine
+API-nøgler og læse og ændre dataene. Derfor lytter den kun på din egen maskine. Skal
+den ud på internettet, skal der login foran først (står også under "Hvad der ellers
+mangler").
+
 ## Vejen til "1-knap send direkte til Google"
 
 Lige nu er "Send"-knappen en placeholder (kopiér til udklipsholder). For at den
@@ -148,7 +204,7 @@ anmeldelser automatisk.
 
 For at det virker:
 
-1. Indsæt en `GOOGLE_PLACES_API_KEY` i `.env` (se `.env.example`)
+1. Indsæt en `GOOGLE_PLACES_API_KEY` i `python-backend/.env` (se `.env.example`)
 2. I [Google Cloud Console](https://console.cloud.google.com/apis/library): aktivér
    **"Places API (New)"** for det projekt nøglen tilhører
 3. Sørg for at projektet har en **billing-konto** koblet på — Places API kræver
@@ -164,30 +220,33 @@ se afsnittet ovenfor.
 
 ## Hvad der ellers mangler før det er et rigtigt produkt
 
+- **Login**: som nævnt under "Sikkerhed" er der intet login endnu, og serveren må derfor kun køre lokalt.
 - **"Nye siden sidst"-tælleren** tæller nu de anmeldelser der reelt står som ubesvarede i databasen. Den mangler stadig at tage højde for *hvornår ejeren sidst var inde* — så "ny" betyder "ikke besvaret endnu", ikke "kommet til siden dit sidste besøg".
-- **Login/flere virksomheder**: hvis I vil have flere kunder, skal hver have sit eget "workspace" med egen liste af anmeldelser.
+- **Flere virksomheder pr. kunde**: hvis I vil have flere kunder, skal hver have sit eget "workspace" med egen liste af anmeldelser.
 - **Betaling**: Stripe-integration til abonnement, hvis I vil automatisere fakturering.
 
 ## Filstruktur
 
 ```
 review-assistant/
-├── server.js                    # Opstart — lytter på porten
-├── src/
-│   ├── app.js                   # Express-app (middleware + routes)
-│   ├── config/env.js            # Læser .env ét sted
-│   ├── routes/                  # HTTP-endpoints
-│   ├── services/                # Claude- og Google Places-kald
-│   ├── models/                  # Al SQL, én fil pr. tabel
-│   └── db/
-│       ├── pool.js              # Delt connection pool + transaktioner
-│       ├── migrate.js           # Migrations-runner (npm run migrate)
-│       └── migrations/          # Nummererede .sql-filer, køres i rækkefølge
-├── public/index.html            # Frontend (form + resultater)
-├── python-backend/              # Alternativ FastAPI-backend
-├── package.json
-├── .env.example                 # Skabelon — kopiér til .env
-└── .env                         # DINE nøgler (opret selv, committes aldrig)
+├── public/index.html            # Frontend (form + resultater), serveres af backenden
+└── python-backend/
+    ├── pyproject.toml           # Afhængigheder (uv.lock låser præcise versioner)
+    ├── .env.example             # Skabelon — kopiér til .env
+    ├── .env                     # DINE nøgler (opret selv, committes aldrig)
+    ├── app/
+    │   ├── main.py              # Selve appen: samler routes, sikkerhed og opstart
+    │   ├── __main__.py          # Startknap: uv run python -m app
+    │   ├── routers/             # HTTP-endpoints (det browseren kalder)
+    │   ├── schemas/             # Tjekker og former data ind og ud
+    │   ├── services/            # Claude- og Google Places-kald
+    │   ├── models/              # Al SQL, én fil pr. tabel
+    │   ├── db/
+    │   │   ├── pool.py          # Forbindelsen til databasen
+    │   │   ├── migrate.py       # Migrations-runner
+    │   │   └── migrations/      # Nummererede .sql-filer, køres i rækkefølge
+    │   └── core/                # Indstillinger, fejlhåndtering og sikkerhed
+    └── tests/                   # uv run pytest
 ```
 
 **Vigtigt:** `.env` ligger allerede i `.gitignore` og skal blive der — den
@@ -200,7 +259,7 @@ indeholder både API-nøgler og adgangskoden til databasen.
 | `GET` | `/api/places/search?query=` | Søger et sted op hos Google. Rører ikke databasen. |
 | `GET` | `/api/places/reviews?placeId=` | Henter fra Google, **gemmer** stedet og anmeldelserne, og svarer med det der nu står i databasen. |
 | `GET` | `/api/restaurants` | Alle gemte steder, senest brugte først. Kaldes når siden åbnes. |
-| `GET` | `/api/restaurants/:id/reviews` | Alle anmeldelser for et sted, med nyeste udkast hæftet på. |
+| `GET` | `/api/restaurants/{id}/reviews` | Alle anmeldelser for et sted, med nyeste udkast hæftet på. |
 | `POST` | `/api/generate` | Genererer udkast med Claude og gemmer hvert af dem i `replies`. |
-| `POST` | `/api/reviews/:id/send` | Gemmer den tekst der faktisk blev sendt, og markerer anmeldelsen besvaret. |
-| `POST` | `/api/reviews/:id/answered` | Markerer besvaret uden at gemme en tekst (svaret blev givet på Google). |
+| `POST` | `/api/reviews/{id}/send` | Gemmer den tekst der faktisk blev sendt, og markerer anmeldelsen besvaret. |
+| `POST` | `/api/reviews/{id}/answered` | Markerer besvaret uden at gemme en tekst (svaret blev givet på Google). |

@@ -193,6 +193,19 @@
   const emptyState = document.getElementById("emptyState");
   const errorDiv = document.getElementById("error");
 
+  // Alt der kommer udefra (anmeldernes navne og tekster fra Google, Claudes
+  // udkast, stednavne) skal renses før det sættes ind som HTML. Ellers kan en
+  // anmeldelse med <img src=x onerror=...> køre kode i ejerens browser — og nu
+  // hvor anmeldelser gemmes i databasen, sker det hver gang siden åbnes.
+  function esc(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function starString(n) {
     n = Number(n);
     return "★".repeat(n) + "☆".repeat(5 - n);
@@ -257,17 +270,17 @@
         if (r.draft) {
           draftSection = `
             <div class="draft-box">
-              <div class="review-text" style="font-style: normal;">${r.draft}</div>
+              <div class="review-text" style="font-style: normal;">${esc(r.draft)}</div>
             </div>
           `;
         }
       } else if (r.draft) {
         draftSection = `
           <div class="draft-box">
-            <textarea class="draftText" data-id="${r.id}">${r.draft}</textarea>
+            <textarea class="draftText" data-id="${esc(r.id)}">${esc(r.draft)}</textarea>
             <div class="draft-actions">
-              <button class="btn-send" data-id="${r.id}">Send til Google</button>
-              <button class="btn-regen" data-id="${r.id}">Generér igen</button>
+              <button class="btn-send" data-id="${esc(r.id)}">Send til Google</button>
+              <button class="btn-regen" data-id="${esc(r.id)}">Generér igen</button>
             </div>
             <div class="send-note">⚠ Prototype: "Send" kopierer svaret til udklipsholder for nu — automatisk afsendelse til Google kræver godkendt Business Profile API-adgang (se README).</div>
           </div>
@@ -276,14 +289,14 @@
 
       row.innerHTML = `
         <div class="review-head">
-          ${currentTab === "unanswered" ? `<input type="checkbox" class="rowCheck" data-id="${r.id}" />` : ""}
+          ${currentTab === "unanswered" ? `<input type="checkbox" class="rowCheck" data-id="${esc(r.id)}" />` : ""}
           <div class="review-info">
             <div class="top-line">
-              <span class="name">${r.reviewerName || "Anonym"}</span>
+              <span class="name">${esc(r.reviewerName) || "Anonym"}</span>
               <span class="stars">${starString(r.rating)}</span>
               ${badge}
             </div>
-            <div class="review-text">"${r.reviewText}"</div>
+            <div class="review-text">"${esc(r.reviewText)}"</div>
           </div>
         </div>
         ${draftSection}
@@ -469,7 +482,7 @@
         btn.style.width = "100%";
         btn.style.textAlign = "left";
         btn.style.marginTop = "6px";
-        btn.innerHTML = `<strong>${place.name}</strong><br><span style="color:var(--muted); font-size:11px;">${place.address}</span>`;
+        btn.innerHTML = `<strong>${esc(place.name)}</strong><br><span style="color:var(--muted); font-size:11px;">${esc(place.address)}</span>`;
         btn.addEventListener("click", () => {
           selectedPlaceId = place.placeId;
           document.querySelectorAll("#placesResults .chip").forEach(c => c.style.borderColor = "");
